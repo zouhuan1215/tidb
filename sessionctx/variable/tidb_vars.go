@@ -286,6 +286,9 @@ const (
 
 	// TiDBEnableNoopFuncs set true will enable using fake funcs(like get_lock release_lock)
 	TiDBEnableNoopFuncs = "tidb_enable_noop_functions"
+
+	// TiDBEnableIndexAdvisor indicates to use index advisor mode
+	TiDBEnableIndexAdvisor = "tidb_enable_index_advisor"
 )
 
 // Default TiDB system variable values.
@@ -344,6 +347,7 @@ const (
 	DefTiDBOptJoinReorderThreshold     = 0
 	DefTiDBDDLSlowOprThreshold         = 300
 	DefTiDBUseFastAnalyze              = false
+	DefTiDBUseIndexAdvisor             = false
 	DefTiDBSkipIsolationLevelCheck     = false
 	DefTiDBExpensiveQueryTimeThreshold = 60 // 60s
 	DefTiDBScatterRegion               = false

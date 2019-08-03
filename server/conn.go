@@ -55,6 +55,7 @@ import (
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/parser/terror"
 	"github.com/pingcap/tidb/executor"
+	idxadv "github.com/pingcap/tidb/idxadvisor"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/metrics"
 	"github.com/pingcap/tidb/plugin"
@@ -893,6 +894,11 @@ func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 		if len(data) > 0 && data[len(data)-1] == 0 {
 			data = data[:len(data)-1]
 			dataStr = string(hack.String(data))
+		}
+		if sqlcontent, is := idxadv.InIdxAvisorMode(dataStr); is {
+			cc.ctx.GetSessionVars().EnableIndexAdvisor = true
+			fmt.Printf("####################sqlcontent is : %v\n", sqlcontent)
+			dataStr = sqlcontent
 		}
 		return cc.handleQuery(ctx, dataStr)
 	case mysql.ComPing:

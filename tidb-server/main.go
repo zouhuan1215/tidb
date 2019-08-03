@@ -35,6 +35,7 @@ import (
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/domain"
+	idxadv "github.com/pingcap/tidb/idxadvisor"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/metrics"
 	plannercore "github.com/pingcap/tidb/planner/core"
@@ -93,6 +94,9 @@ const (
 	nmProxyProtocolNetworks      = "proxy-protocol-networks"
 	nmProxyProtocolHeaderTimeout = "proxy-protocol-header-timeout"
 	nmAffinityCPU                = "affinity-cpus"
+
+	nmIdxAdvisor = "index-advisor"
+	nmSql        = "sql"
 )
 
 var (
@@ -132,6 +136,10 @@ var (
 	// PROXY Protocol
 	proxyProtocolNetworks      = flag.String(nmProxyProtocolNetworks, "", "proxy protocol networks allowed IP or *, empty mean disable proxy protocol support")
 	proxyProtocolHeaderTimeout = flag.Uint(nmProxyProtocolHeaderTimeout, 5, "proxy protocol header read timeout, unit is second.")
+
+	// Index Advisor
+	idxAdvisor = flagBoolean(nmIdxAdvisor, false, "if enable index advisor service.")
+	sql        = flag.String(nmSql, "", "Temp SQL Query")
 )
 
 var (
@@ -160,6 +168,7 @@ func main() {
 		fmt.Println("config check successful")
 		os.Exit(0)
 	}
+
 	setGlobalVars()
 	setCPUAffinity()
 	setupLog()
@@ -168,6 +177,20 @@ func main() {
 	// it's been properly set up.
 	if configWarning != "" {
 		log.Warn(configWarning)
+	}
+
+	if *idxAdvisor {
+		if *sql != "" {
+			fmt.Println("*************************************************")
+			fmt.Printf("Runing Index Advisor Service!\n")
+			fmt.Println("************************************************")
+			// set global value -- EnableIndexAdvisor = true
+			variable.SysVars[variable.TiDBEnableIndexAdvisor].Value = "1"
+			go idxadv.RunSqlClient(*sql)
+		} else {
+			fmt.Printf("[Error] Missing sql conf file, but index server service is on!\n")
+			os.Exit(0)
+		}
 	}
 	setupTracing() // Should before createServer and after setup config.
 	printInfo()
