@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -92,26 +91,24 @@ func runSqlClient(overrider configOverrider, query string) error {
 	if err != nil {
 		return err
 	} else {
-		db.Exec("SET tidb_enable_index_advisor = 1")
-		for i := 0; i < 10; i++ {
-			if i == 2 {
-				db.Exec("SET tidb_enable_index_advisor = 0")
-			}
-			_, err := db.Exec(query)
-			if err != nil {
-				db.Exec(query)
-			}
+		//	db.Exec("SET tidb_enable_index_advisor = 1")
+		//	for i := 0; i < 10; i++ {
+		//		if i == 2 {
+		//			db.Exec("SET tidb_enable_index_advisor = 0")
+		//		}
+		//		_, err := db.Exec(query)
+		//		if err != nil {
+		//			db.Exec(query)
+		//		}
+
+		//	}
+
+		ia := NewIdxAdv(db)
+		err := ia.Init()
+		if err != nil {
+			ia.StartTask(query)
 		}
 
 	}
 	return nil
-}
-
-func InIdxAvisorMode(query string) (string, bool) {
-	uints := strings.Split(query, IdxAdvCmdIden)
-	if strings.EqualFold(uints[0], IdxAdvCmd) {
-		return uints[1], true
-	} else {
-		return query, false
-	}
 }

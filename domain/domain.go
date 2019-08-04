@@ -259,6 +259,11 @@ func (do *Domain) tryLoadSchemaDiffs(m *meta.Meta, usedVersion, newVersion int64
 	return true, tblIDs, nil
 }
 
+// GetInfoSchemaHandle gets do.infoschemaHandle
+func (do *Domain) GetInfoSchemaHandle() *infoschema.Handle {
+	return do.infoHandle
+}
+
 // InfoSchema gets information schema from domain.
 func (do *Domain) InfoSchema() infoschema.InfoSchema {
 	return do.infoHandle.Get()

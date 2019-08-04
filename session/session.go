@@ -1092,6 +1092,13 @@ func (s *session) execute(ctx context.Context, sql string) (recordSets []sqlexec
 			}
 			s.handleInvalidBindRecord(ctx, stmtNode)
 		}
+
+		// if current session is in index advisor mode, skip execute statement step
+		if stmt.Plan == nil && s.GetSessionVars().EnableIndexAdvisor {
+			fmt.Printf("***[session/session.go -- func execute]: ignore stmt execute step\n")
+			return nil, nil
+		}
+
 		if isInternal {
 			sessionExecuteCompileDurationInternal.Observe(time.Since(startTS).Seconds())
 		} else {

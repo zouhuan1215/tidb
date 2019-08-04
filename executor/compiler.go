@@ -23,6 +23,7 @@ import (
 	"github.com/pingcap/tidb/bindinfo"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
+	idxadv "github.com/pingcap/tidb/idxadvisor"
 	"github.com/pingcap/tidb/infoschema"
 	"github.com/pingcap/tidb/metrics"
 	"github.com/pingcap/tidb/planner"
@@ -71,6 +72,9 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 	}
 
 	infoSchema := GetInfoSchema(c.Ctx)
+	sessionID := c.Ctx.GetSessionVars().ConnectionID
+	idxadvCtx := idxadv.GetIdxAdvCtx(sessionID)
+
 	if err := plannercore.Preprocess(c.Ctx, stmtNode, infoSchema); err != nil {
 		return nil, err
 	}
