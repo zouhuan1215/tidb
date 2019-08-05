@@ -24,11 +24,6 @@ const retryTime = 100
 // TODO: statusPort should be sysVars, get it from global vars
 const statusPort uint = 10080
 
-// IdxAdvCmd and IdxCmdIden is used to distinguish if a queryis in IndexAdvisor mode
-// e.g. Using IndexAdivisor Query: "using idvisor#select * from t"
-const IdxAdvCmdIden = "#"
-const IdxAdvCmd = "using idxadv"
-
 type configOverrider func(*mysql.Config)
 
 // getDSN generates a DSN string for MySQL connection.
@@ -91,23 +86,14 @@ func runSqlClient(overrider configOverrider, query string) error {
 	if err != nil {
 		return err
 	} else {
-		//	db.Exec("SET tidb_enable_index_advisor = 1")
-		//	for i := 0; i < 10; i++ {
-		//		if i == 2 {
-		//			db.Exec("SET tidb_enable_index_advisor = 0")
-		//		}
-		//		_, err := db.Exec(query)
-		//		if err != nil {
-		//			db.Exec(query)
-		//		}
-
-		//	}
-
 		ia := NewIdxAdv(db)
 		err := ia.Init()
 		if err != nil {
-			ia.StartTask(query)
+			panic(err)
 		}
+
+		fmt.Printf("***************ia.StartTask(query)*******************\n")
+		ia.StartTask(query)
 
 	}
 	return nil

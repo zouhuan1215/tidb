@@ -15,11 +15,13 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/parser"
 	"github.com/pingcap/parser/ast"
+	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/bindinfo"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
@@ -72,8 +74,6 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 	}
 
 	infoSchema := GetInfoSchema(c.Ctx)
-	sessionID := c.Ctx.GetSessionVars().ConnectionID
-	idxadvCtx := idxadv.GetIdxAdvCtx(sessionID)
 
 	if err := plannercore.Preprocess(c.Ctx, stmtNode, infoSchema); err != nil {
 		return nil, err
@@ -82,6 +82,22 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 	finalPlan, err := planner.Optimize(ctx, c.Ctx, stmtNode, infoSchema)
 	if err != nil {
 		return nil, err
+	}
+
+	if c.Ctx.GetSessionVars().EnableIndexAdvisor {
+		dbname := c.Ctx.GetSessionVars().CurrentDB
+		vInfoSchema := idxadv.BuildAndGetVirtualInfoschema(stmtNode, infoSchema, dbname)
+		vtable, _ := vInfoSchema.TableByName(model.NewCIStr(dbname), model.NewCIStr("Persons"))
+		table, _ := infoSchema.TableByName(model.NewCIStr(dbname), model.NewCIStr("Persons"))
+		vtblInfo := vtable.Meta()
+		tblInfo := table.Meta()
+		fmt.Printf("****number of indices: [vtbl, tbl]: [%v, %v]\n", len(vtblInfo.Indices), len(tblInfo.Indices))
+		_, err := planner.Optimize(ctx, c.Ctx, stmtNode, vInfoSchema)
+		if err != nil {
+			fmt.Printf("planner.Optimize with vInfoSchema error: %v\n", err)
+			panic(err)
+		}
+
 	}
 
 	CountStmtNode(stmtNode, c.Ctx.GetSessionVars().InRestrictedSQL)

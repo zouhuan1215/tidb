@@ -40,7 +40,7 @@ import (
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util"
 	"github.com/pingcap/tidb/util/logutil"
-	"github.com/pingcap/tidb/util/rowDecoder"
+	decoder "github.com/pingcap/tidb/util/rowDecoder"
 	"github.com/pingcap/tidb/util/timeutil"
 	"go.uber.org/zap"
 )
@@ -172,7 +172,7 @@ func getIndexColumnLength(col *model.ColumnInfo, colLen int) (int, error) {
 	return length, nil
 }
 
-func buildIndexInfo(tblInfo *model.TableInfo, indexName model.CIStr, idxColNames []*ast.IndexColName, state model.SchemaState) (*model.IndexInfo, error) {
+func BuildIndexInfo(tblInfo *model.TableInfo, indexName model.CIStr, idxColNames []*ast.IndexColName, state model.SchemaState) (*model.IndexInfo, error) {
 	idxColumns, err := buildIndexColumns(tblInfo.Columns, idxColNames)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -289,7 +289,7 @@ func (w *worker) onCreateIndex(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int
 	}
 
 	if indexInfo == nil {
-		indexInfo, err = buildIndexInfo(tblInfo, indexName, idxColNames, model.StateNone)
+		indexInfo, err = BuildIndexInfo(tblInfo, indexName, idxColNames, model.StateNone)
 		if err != nil {
 			job.State = model.JobStateCancelled
 			return ver, errors.Trace(err)

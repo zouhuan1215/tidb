@@ -49,8 +49,6 @@ import (
 	"time"
 
 	"github.com/opentracing/opentracing-go"
-	idxadv "github.com/pincap/tidb/idxadvisor"
-	"github.com/pincap/tidb/server"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/parser/auth"
@@ -612,8 +610,6 @@ func (cc *clientConn) Run(ctx context.Context) {
 		}
 	}()
 
-	indexAdvisorIsOn := cc.ctx.GetSessionVars().EnableIndexAdvisor
-
 	// Usually, client connection status changes between [dispatching] <=> [reading].
 	// When some event happens, server may notify this client connection by setting
 	// the status to special values, for example: kill or graceful shutdown.
@@ -677,18 +673,6 @@ func (cc *clientConn) Run(ctx context.Context) {
 			)
 			err1 := cc.writeError(err)
 			terror.Log(err1)
-		}
-
-		// Index Advisor Mode has been turned on in current session
-		if !indexAdvisorIsOn {
-			if cc.ctx.GetSessionVars().EnableIndexAdvisor {
-				ia := &idxadv.IdxAdvisor{}
-				if tictx, ok := cc.ctx.(*server.TiDBContext); ok {
-					if sctx, ok := tictx.session.(*session.session); ok {
-						idxadv.RegisterIdxAdv(sctx)
-					}
-				}
-			}
 		}
 
 		cc.addMetrics(data[0], startTime, err)
