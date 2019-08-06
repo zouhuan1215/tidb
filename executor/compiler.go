@@ -92,12 +92,26 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 		vtblInfo := vtable.Meta()
 		tblInfo := table.Meta()
 		fmt.Printf("****number of indices: [vtbl, tbl]: [%v, %v]\n", len(vtblInfo.Indices), len(tblInfo.Indices))
-		_, err := planner.Optimize(ctx, c.Ctx, stmtNode, vInfoSchema)
+		vFinalPlan, err := planner.Optimize(ctx, c.Ctx, stmtNode, vInfoSchema)
+		vcost, err1 := plannercore.GetRootTaskCost(vFinalPlan)
+		if err1 != nil {
+			panic(err1)
+		}
+		vPhysicalPlan, err2 := plannercore.GetPhysicalPlan(vFinalPlan)
+		if err2 != nil {
+			panic(err2)
+		}
+		//	selectedIndexs := idxadv.GetSelectedIndex(vPhysicalPlan)
+		//      res := idx.Result{Cost: cost, SelectedIndex: selectedIndexes}
+		//      idxadv.WriteResult(res, c.Ctx.GetSessionVars().ConnectionID)
+		fmt.Printf("*****vPhysicalPlan: %v\n", vPhysicalPlan.ID())
+		fmt.Printf("*****vFinalPlan's cost is: %v\n", vcost)
 		if err != nil {
 			fmt.Printf("planner.Optimize with vInfoSchema error: %v\n", err)
 			panic(err)
 		}
-
+		fmt.Printf("*****ID[vFinalPlanID, finalPlan]: [%v, %v]\n", vFinalPlan.ID(), finalPlan.ID())
+		finalPlan = nil
 	}
 
 	CountStmtNode(stmtNode, c.Ctx.GetSessionVars().InRestrictedSQL)

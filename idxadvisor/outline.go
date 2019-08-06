@@ -251,7 +251,7 @@ func findPrimaryKey(indices []*model.IndexInfo) *model.IndexInfo {
 //	}
 //}
 
-// called by dbClient
+// StartTask start handling queries in idxadv mode after session variable tidb_enable_index_advisor has been set
 func (ia *IdxAdvisor) StartTask(query string) {
 	if ia.IsReady() {
 		fmt.Printf("********idxadvisor/outline.go: Set variable has done, StartTask starts query\n")

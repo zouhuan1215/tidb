@@ -181,11 +181,9 @@ func main() {
 
 	if *idxAdvisor {
 		if *sql != "" {
-			fmt.Println("*************************************************")
-			fmt.Printf("Runing Index Advisor Service!\n")
-			fmt.Println("************************************************")
-			// set global value -- EnableIndexAdvisor = true
-			variable.SysVars[variable.TiDBEnableIndexAdvisor].Value = "1"
+			fmt.Printf("*************************************************\n")
+			fmt.Printf("*         Runing Index Advisor Service          *\n")
+			fmt.Printf("*************************************************\n")
 			go idxadv.RunSqlClient(*sql)
 		} else {
 			fmt.Printf("[Error] Missing sql conf file, but index server service is on!\n")

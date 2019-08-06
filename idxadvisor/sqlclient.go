@@ -10,6 +10,12 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
+const retryTime = 100
+
+// statusPort is tidb server's status port
+// TODO: statusPort should be sysVars, get it from global vars
+const statusPort uint = 10080
+
 var defaultDSNConfig = mysql.Config{
 	User:   "root",
 	Net:    "tcp",
@@ -17,12 +23,6 @@ var defaultDSNConfig = mysql.Config{
 	DBName: "test",
 	Strict: true,
 }
-
-const retryTime = 100
-
-// statusPort is tidb server's status port
-// TODO: statusPort should be sysVars, get it from global vars
-const statusPort uint = 10080
 
 type configOverrider func(*mysql.Config)
 

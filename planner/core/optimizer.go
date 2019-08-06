@@ -179,6 +179,10 @@ func physicalOptimize(logic LogicalPlan) (PhysicalPlan, error) {
 	}
 
 	err = t.plan().ResolveIndices()
+
+	if vt, ok := t.(*rootTask); ok && logic.context().GetSessionVars().EnableIndexAdvisor {
+		return vt, err
+	}
 	return t.plan(), err
 }
 

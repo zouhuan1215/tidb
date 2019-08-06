@@ -17,13 +17,16 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/charset"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/expression/aggregation"
+	"github.com/pingcap/tidb/planner/property"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/types"
+	"github.com/pingcap/tipb/go-tipb"
 )
 
 // task is a new version of `PhysicalPlanInfo`. It stores cost information for a task.
@@ -239,6 +242,21 @@ type rootTask struct {
 	cst float64
 }
 
+func GetRootTaskCost(p Plan) (float64, error) {
+	if vt, ok := p.(*rootTask); ok {
+		return vt.cost(), nil
+	}
+	return 0, errors.New("GetRootTaskCost: Plan interface is not implemented by rootTask")
+}
+
+func GetPhysicalPlan(p Plan) (PhysicalPlan, error) {
+	if vt, ok := p.(*rootTask); ok {
+		return vt.plan(), nil
+	}
+	return nil, errors.New("GetRootTaskCost: Plan interface is not implemented by rootTask")
+
+}
+
 func (t *rootTask) copy() task {
 	return &rootTask{
 		p:   t.p,
@@ -260,6 +278,61 @@ func (t *rootTask) cost() float64 {
 
 func (t *rootTask) plan() PhysicalPlan {
 	return t.p
+}
+
+func (t *rootTask) Schema() *expression.Schema {
+	return t.p.Schema()
+}
+
+func (t *rootTask) ID() int {
+	return t.p.ID()
+}
+
+func (t *rootTask) ExplainID() fmt.Stringer {
+	return t.p.ExplainID()
+}
+
+func (t *rootTask) replaceExprColumns(replace map[string]*expression.Column) {
+	t.p.replaceExprColumns(replace)
+}
+
+func (t *rootTask) context() sessionctx.Context {
+	return t.p.context()
+}
+
+func (t *rootTask) statsInfo() *property.StatsInfo {
+	return t.p.statsInfo()
+}
+
+func (t *rootTask) attach2Task(tasks ...task) task {
+	return t.p.attach2Task(tasks...)
+}
+func (t *rootTask) ToPB(ctx sessionctx.Context) (*tipb.Executor, error) {
+	return t.p.ToPB(ctx)
+}
+func (t *rootTask) ExplainInfo() string {
+	return t.p.ExplainInfo()
+}
+func (t *rootTask) GetChildReqProps(idx int) *property.PhysicalProperty {
+	return t.p.GetChildReqProps(idx)
+}
+func (t *rootTask) StatsCount() float64 {
+	return t.p.StatsCount()
+}
+
+func (t *rootTask) Children() []PhysicalPlan {
+	return t.p.Children()
+}
+
+func (t *rootTask) SetChildren(children ...PhysicalPlan) {
+	t.p.SetChildren(children...)
+}
+func (t *rootTask) SetChild(i int, child PhysicalPlan) {
+	t.p.SetChild(i, child)
+}
+
+func (t *rootTask) ResolveIndices() error {
+	return t.p.ResolveIndices()
 }
 
 func (p *PhysicalLimit) attach2Task(tasks ...task) task {

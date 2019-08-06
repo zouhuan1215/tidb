@@ -33,6 +33,7 @@ import (
 type Plan interface {
 	// Get the schema.
 	Schema() *expression.Schema
+
 	// Get the ID.
 	ID() int
 	// Get the ID in explain statement
