@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync/atomic"
 
 	"github.com/pingcap/parser/ast"
@@ -44,13 +45,13 @@ func (iap *idxAdvPool) empty() bool {
 //	CompareCost() (original_cost, virtual_cost, selected_idx, err) // input: need a session? virtualTblInfo, build two different logical_plan_builder
 //}
 
-// indexAdviosr implements ExtractClause and CompareCost() method, BuildVirtualTblInfo() is implemented by Single or Multiple
+// IdxAdvisor implements ExtractClause and CompareCost() method, BuildVirtualTblInfo() is implemented by Single or Multiple
 type IdxAdvisor struct {
 	dbClient *sql.DB
 	//	IdxAdvCtx *IdxAdvContext
 
-	ready atomic.Value // initialized(1) or not(0)
-	//	Candidate_idx  []*CandidateIdx
+	ready         atomic.Value // initialized(1) or not(0)
+	Candidate_idx []*CandidateIdx
 }
 
 //type IdxAdvContext struct {
@@ -109,6 +110,7 @@ func (ia *IdxAdvisor) IsReady() bool {
 	panic("IdxAdvisor.ready is not bool")
 }
 
+// NewIdxAdv create a new IdxAdvisor.
 func NewIdxAdv(db *sql.DB) *IdxAdvisor {
 	ia := &IdxAdvisor{dbClient: db}
 	ia.ready.Store(false)
@@ -238,7 +240,7 @@ func findPrimaryKey(indices []*model.IndexInfo) *model.IndexInfo {
 //		fmt.Printf("*********BuildAndGetIdxAdvCtx: not registered, register\n")
 //		RegisterIdxAdv(is, sessionID)
 //		if ia, ok := registeredIdxAdv[sessionID]; ok {
-//			ia.BuildIdxAdvCtx()
+//			ia.BuildIdxAdvCtRegisterIdxAdvx()
 //		} else {
 //			panic("RegisterIdxAdv doesn't work!")
 //		}
@@ -255,17 +257,24 @@ func findPrimaryKey(indices []*model.IndexInfo) *model.IndexInfo {
 func (ia *IdxAdvisor) StartTask(query string) {
 	if ia.IsReady() {
 		fmt.Printf("********idxadvisor/outline.go: Set variable has done, StartTask starts query\n")
-		var err error
-		_, err = ia.dbClient.Exec(query)
-		for i := 0; i < 10; i++ {
-			if err == nil {
-				_, err = ia.dbClient.Exec(query)
-				fmt.Printf("[%v]", i)
-			} else {
-				fmt.Printf("**********query execution error: %v\n", err)
-				panic(err)
-			}
+		if _, err := ia.dbClient.Exec(query); err != nil {
+			fmt.Printf("**********query execution error: %v\n", err)
+			panic(err)
 		}
+		if _, err := ia.dbClient.Exec("select * from IDXADV where a = 1 and c = 3"); err != nil {
+			fmt.Printf("**********query execution error: %v\n", err)
+			panic(err)
+		}
+		if _, err := ia.dbClient.Exec("select c from IDXADV where a in (1,3)"); err != nil {
+			fmt.Printf("**********query execution error: %v\n", err)
+			panic(err)
+		}
+		/*
+		if _, err := ia.dbClient.Exec("select * from IDXADV t1,t t2 where t1.c=t2.c"); err != nil {
+			fmt.Printf("**********query execution error: %v\n", err)
+			panic(err)
+		}
+		*/
 	}
 }
 
@@ -276,4 +285,19 @@ func newInfoSchemaCopy(oldIS infoschema.InfoSchema) infoschema.InfoSchema {
 	ISCopy := infoschema.MockInfoSchemaWithDBInfos(oldDBInfos, isVersion)
 
 	return ISCopy
+}
+
+func (ia *IdxAdvisor) addCandidate(virtualIdx *CandidateIdx) {
+	in := false
+	for _, candidateIdx := range ia.Candidate_idx {
+		if reflect.DeepEqual(candidateIdx.Index.Columns, virtualIdx.Index.Columns) {
+			candidateIdx.Benefit += virtualIdx.Benefit
+			in = true
+			break
+		}
+	}
+
+	if !in {
+		ia.Candidate_idx = append(ia.Candidate_idx, virtualIdx)
+	}
 }

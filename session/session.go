@@ -1042,7 +1042,7 @@ func (s *session) execute(ctx context.Context, sql string) (recordSets []sqlexec
 		return nil, err
 	}
 
-	if strings.Contains(sql, "Persons") {
+	if strings.Contains(sql, "IDXADV") {
 		fmt.Printf("###############%v##############\n", sql)
 	}
 	charsetInfo, collation := s.sessionVars.GetCharsetInfo()
