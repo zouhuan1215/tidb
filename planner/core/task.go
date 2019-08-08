@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/charset"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
@@ -25,6 +26,7 @@ import (
 	"github.com/pingcap/tidb/planner/property"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/types"
+	"github.com/pingcap/tipb/go-tipb"
 )
 
 // task is a new version of `PhysicalPlanInfo`. It stores cost information for a task.
@@ -92,6 +94,61 @@ func (t *copTask) plan() PhysicalPlan {
 		return t.tablePlan
 	}
 	return t.indexPlan
+}
+
+func (t *copTask) Schema() *expression.Schema {
+	return t.plan().Schema()
+}
+
+func (t *copTask) ID() int {
+	return t.plan().ID()
+}
+
+func (t *copTask) ExplainID() fmt.Stringer {
+	return t.plan().ExplainID()
+}
+
+func (t *copTask) replaceExprColumns(replace map[string]*expression.Column) {
+	t.plan().replaceExprColumns(replace)
+}
+
+func (t *copTask) context() sessionctx.Context {
+	return t.plan().context()
+}
+
+func (t *copTask) statsInfo() *property.StatsInfo {
+	return t.plan().statsInfo()
+}
+
+func (t *copTask) attach2Task(tasks ...task) task {
+	return t.plan().attach2Task(tasks...)
+}
+func (t *copTask) ToPB(ctx sessionctx.Context) (*tipb.Executor, error) {
+	return t.plan().ToPB(ctx)
+}
+func (t *copTask) ExplainInfo() string {
+	return t.plan().ExplainInfo()
+}
+func (t *copTask) GetChildReqProps(idx int) *property.PhysicalProperty {
+	return t.plan().GetChildReqProps(idx)
+}
+func (t *copTask) StatsCount() float64 {
+	return t.plan().StatsCount()
+}
+
+func (t *copTask) Children() []PhysicalPlan {
+	return t.plan().Children()
+}
+
+func (t *copTask) SetChildren(children ...PhysicalPlan) {
+	t.plan().SetChildren(children...)
+}
+func (t *copTask) SetChild(i int, child PhysicalPlan) {
+	t.plan().SetChild(i, child)
+}
+
+func (t *copTask) ResolveIndices() error {
+	return t.plan().ResolveIndices()
 }
 
 func attachPlan2Task(p PhysicalPlan, t task) task {
@@ -419,6 +476,28 @@ type rootTask struct {
 	cst float64
 }
 
+func GetTaskCost(p Plan) (float64, error) {
+	switch vt := p.(type) {
+	case *rootTask:
+		return vt.cost(), nil
+	case *copTask:
+		return vt.cost(), nil
+	default:
+		return 0, errors.New("GetRootTaskCost: Plan interface is not implemented by rootTask")
+	}
+}
+
+func GetPhysicalPlan(p Plan) (PhysicalPlan, error) {
+	switch vt := p.(type) {
+	case *rootTask:
+		return vt.plan(), nil
+	case *copTask:
+		return vt.plan(), nil
+	default:
+		return nil, errors.New("GetRootTaskCost: Plan interface is not implemented by rootTask")
+	}
+}
+
 func (t *rootTask) copy() task {
 	return &rootTask{
 		p:   t.p,
@@ -440,6 +519,61 @@ func (t *rootTask) cost() float64 {
 
 func (t *rootTask) plan() PhysicalPlan {
 	return t.p
+}
+
+func (t *rootTask) Schema() *expression.Schema {
+	return t.p.Schema()
+}
+
+func (t *rootTask) ID() int {
+	return t.p.ID()
+}
+
+func (t *rootTask) ExplainID() fmt.Stringer {
+	return t.p.ExplainID()
+}
+
+func (t *rootTask) replaceExprColumns(replace map[string]*expression.Column) {
+	t.p.replaceExprColumns(replace)
+}
+
+func (t *rootTask) context() sessionctx.Context {
+	return t.p.context()
+}
+
+func (t *rootTask) statsInfo() *property.StatsInfo {
+	return t.p.statsInfo()
+}
+
+func (t *rootTask) attach2Task(tasks ...task) task {
+	return t.p.attach2Task(tasks...)
+}
+func (t *rootTask) ToPB(ctx sessionctx.Context) (*tipb.Executor, error) {
+	return t.p.ToPB(ctx)
+}
+func (t *rootTask) ExplainInfo() string {
+	return t.p.ExplainInfo()
+}
+func (t *rootTask) GetChildReqProps(idx int) *property.PhysicalProperty {
+	return t.p.GetChildReqProps(idx)
+}
+func (t *rootTask) StatsCount() float64 {
+	return t.p.StatsCount()
+}
+
+func (t *rootTask) Children() []PhysicalPlan {
+	return t.p.Children()
+}
+
+func (t *rootTask) SetChildren(children ...PhysicalPlan) {
+	t.p.SetChildren(children...)
+}
+func (t *rootTask) SetChild(i int, child PhysicalPlan) {
+	t.p.SetChild(i, child)
+}
+
+func (t *rootTask) ResolveIndices() error {
+	return t.p.ResolveIndices()
 }
 
 func (p *PhysicalLimit) attach2Task(tasks ...task) task {

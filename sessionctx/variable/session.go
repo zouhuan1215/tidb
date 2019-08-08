@@ -380,6 +380,9 @@ type SessionVars struct {
 	// EnableFastAnalyze indicates whether to take fast analyze.
 	EnableFastAnalyze bool
 
+	// EnableIndexAdvisor indicates whether to enter index advisor mode
+	EnableIndexAdvisor bool
+
 	// TxnMode indicates should be pessimistic or optimistic.
 	TxnMode string
 
@@ -815,6 +818,8 @@ func (s *SessionVars) SetSystemVar(name string, val string) error {
 		s.SlowQueryFile = val
 	case TiDBEnableFastAnalyze:
 		s.EnableFastAnalyze = TiDBOptOn(val)
+	case TiDBEnableIndexAdvisor:
+		s.EnableIndexAdvisor = TiDBOptOn(val)
 	case TiDBWaitSplitRegionFinish:
 		s.WaitSplitRegionFinish = TiDBOptOn(val)
 	case TiDBWaitSplitRegionTimeout:

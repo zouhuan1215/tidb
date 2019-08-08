@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/tidb/ddl"
+	"github.com/pingcap/tidb/infoschema"
 )
 
 type idxAdvPool []*IdxAdvisor
@@ -80,29 +83,85 @@ func (ia *IdxAdvisor) StartTask(query string) {
 		//		var err error
 		sqlFile := "/tmp/queries"
 		queries := readQuery(&sqlFile)
-		fmt.Printf("==============len(queries):%v\n", len(queries))
-		//	for i, query := range queries {
-		//		fmt.Printf("$$$$$$$$$$$$$$$$$$$$$$[%v]$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\n", i+1)
-		//		//	query = "select * from orders limit 10000;"
-		//		_, err := ia.dbClient.Exec(query)
-		//		_, err1 := ia.dbClient.Exec(query)
-		//		if err != nil || err1 != nil {
-		//			fmt.Printf("**********query execution error: %s***********\n", err.Error())
-		//			panic(err)
-		//		}
-		//	}
-
-		for i := 21; i >= 0; i-- {
-			query := queries[i]
+		for i, query := range queries {
 			fmt.Printf("$$$$$$$$$$$$$$$$$$$$$$[%v]$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\n", i+1)
-			//	query = "select * from orders limit 10000;"
-			_, err := ia.dbClient.Exec(query)
-			_, err1 := ia.dbClient.Exec(query)
-			if err != nil || err1 != nil {
-				fmt.Printf("**********query execution error: %s***********\n", err.Error())
-				panic(err)
-			}
+			ia.dbClient.Exec(query)
 		}
-
 	}
+}
+
+func GetVirtualInfoschema(is infoschema.InfoSchema, dbName, tblName string) infoschema.InfoSchema {
+	// Get a copy of InfoSchema
+	dbInfos := is.Clone()
+	ISCopy := infoschema.MockInfoSchemaWithDBInfos(dbInfos, is.SchemaMetaVersion())
+
+	dbname := model.NewCIStr(dbName)
+	tblname := model.NewCIStr(tblName)
+	tblCopy, err := ISCopy.TableByName(dbname, tblname)
+	if err != nil {
+		panic(err)
+	}
+	tblInfoCopy := tblCopy.Meta()
+
+	// add virtual indexes to InfoSchemaCopy.TblInfo
+	virtualIndexes := BuildVirtualIndexes(tblInfoCopy, dbname, tblname)
+	tblInfoCopy.Indices = append(tblInfoCopy.Indices, virtualIndexes...)
+	return ISCopy
+}
+
+func BuildVirtualIndexes(tblInfo *model.TableInfo, dbname, tblname model.CIStr) []*model.IndexInfo {
+	indexes := GenVirtualIndexCols(tblInfo, dbname, tblname)
+	result := make([]*model.IndexInfo, 0)
+	for i, idxColNames := range indexes {
+		indexName := model.NewCIStr("vIndex" + string(i))
+		indexinfo, err := ddl.BuildIndexInfo(tblInfo, indexName, idxColNames, model.StatePublic)
+		if err != nil {
+			fmt.Printf("***************BuildVirtualIndexes error: %v!\n", err)
+			panic(err)
+		}
+		result = append(result, indexinfo)
+	}
+	return result
+
+}
+
+func GenVirtualIndexCols(tblInfo *model.TableInfo, dbname, tblname model.CIStr) [][]*ast.IndexColName {
+	columnInfos := tblInfo.Columns
+	var result [][]*ast.IndexColName
+	for _, columnInfo := range columnInfos {
+		idxCols := make([]*ast.IndexColName, 1, 1)
+		idxCols[0] = BuildIdxColNameFromColInfo(columnInfo, dbname, tblname)
+		if !IndexesHasAlreadyExist(idxCols, tblInfo.Indices) {
+			result = append(result, idxCols)
+		}
+	}
+	return result
+}
+
+func BuildIdxColNameFromColInfo(colInfo *model.ColumnInfo, dbname, tblname model.CIStr) *ast.IndexColName {
+	idxColName := &ast.IndexColName{}
+	idxColName.Column = &ast.ColumnName{Schema: dbname, Table: tblname, Name: colInfo.Name}
+	idxColName.Length = -1
+	return idxColName
+}
+
+// TODO: This is only single col index recomendation
+func IndexesHasAlreadyExist(idxCols []*ast.IndexColName, indices []*model.IndexInfo) bool {
+	primaryKey := findPrimaryKey(indices)
+	if primaryKey == nil {
+		return false
+	}
+	return primaryKey.Columns[0].Name.String() == idxCols[0].Column.Name.String()
+}
+
+func findPrimaryKey(indices []*model.IndexInfo) *model.IndexInfo {
+	if len(indices) == 0 {
+		return nil
+	}
+	for _, indexInfo := range indices {
+		if indexInfo.Primary {
+			return indexInfo
+		}
+	}
+	return nil
 }

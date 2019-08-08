@@ -15,7 +15,9 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"math"
+	"reflect"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/ast"
@@ -123,10 +125,12 @@ func DoOptimize(ctx context.Context, flag uint64, logic LogicalPlan) (PhysicalPl
 		return nil, errors.Trace(ErrCartesianProductUnsupported)
 	}
 	physical, err := physicalOptimize(logic)
+	//	fmt.Printf("*********[DoOptimize]physicalOptimze has returned\n")
 	if err != nil {
 		return nil, err
 	}
 	finalPlan := postOptimize(physical)
+	//	fmt.Printf("*********[DoOptimize]postOptimize has returned\n")
 	return finalPlan, nil
 }
 
@@ -179,6 +183,25 @@ func physicalOptimize(logic LogicalPlan) (PhysicalPlan, error) {
 	}
 
 	err = t.plan().ResolveIndices()
+	if logic.context().GetSessionVars().EnableIndexAdvisor {
+		fmt.Printf("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n")
+		fmt.Printf("===========return vt, physical plan's best cost is: %v===================================================\n", t.cost())
+		fmt.Printf("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n")
+		fmt.Printf("*********reflect.TypeOf(logic): %v\n", reflect.TypeOf(logic))
+		fmt.Printf("*********ToString(logic)%v\n", ToString(logic))
+
+		if _, ok := logic.(*LogicalMaxOneRow); !ok {
+			switch vt := t.(type) {
+			case *rootTask:
+				return vt, nil
+			case *copTask:
+				return vt, nil
+			default:
+				return nil, errors.New("GetRootTaskCost: Plan interface is not implemented by rootTask")
+			}
+		}
+
+	}
 	return t.plan(), err
 }
 

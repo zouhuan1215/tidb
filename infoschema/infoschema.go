@@ -165,6 +165,34 @@ func MockInfoSchema(tbList []*model.TableInfo) InfoSchema {
 	return result
 }
 
+func MockInfoSchemaWithDBInfos(dbInfos []*model.DBInfo, schemaMetaVer int64) InfoSchema {
+	result := &infoSchema{}
+	result.schemaMap = make(map[string]*schemaTables)
+	result.sortedTablesBuckets = make([]sortedTables, bucketCount)
+	result.schemaMetaVersion = schemaMetaVer
+
+	for _, db := range dbInfos {
+		tableNames := &schemaTables{
+			dbInfo: db,
+			tables: make(map[string]table.Table),
+		}
+		result.schemaMap[db.Name.String()] = tableNames
+		tbList := db.Tables
+		for _, tb := range tbList {
+			tbl := table.MockTableFromMeta(tb)
+			tableNames.tables[tb.Name.L] = tbl
+			bucketIdx := tableBucketIdx(tb.ID)
+			result.sortedTablesBuckets[bucketIdx] = append(result.sortedTablesBuckets[bucketIdx], tbl)
+		}
+	}
+
+	for i := range result.sortedTablesBuckets {
+		sort.Sort(result.sortedTablesBuckets[i])
+	}
+
+	return result
+}
+
 var _ InfoSchema = (*infoSchema)(nil)
 
 func (is *infoSchema) SchemaByName(schema model.CIStr) (val *model.DBInfo, ok bool) {

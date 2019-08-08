@@ -15,6 +15,7 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/opentracing/opentracing-go"
@@ -23,6 +24,7 @@ import (
 	"github.com/pingcap/tidb/bindinfo"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
+	idxadv "github.com/pingcap/tidb/idxadvisor"
 	"github.com/pingcap/tidb/infoschema"
 	"github.com/pingcap/tidb/metrics"
 	"github.com/pingcap/tidb/planner"
@@ -31,6 +33,8 @@ import (
 	"github.com/pingcap/tidb/util/logutil"
 	"go.uber.org/zap"
 )
+
+const tblname string = "orders"
 
 var (
 	stmtNodeCounterUse      = metrics.StmtNodeCounter.WithLabelValues("Use")
@@ -79,6 +83,27 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 	finalPlan, err := planner.Optimize(ctx, c.Ctx, stmtNode, infoSchema)
 	if err != nil {
 		return nil, err
+	}
+
+	if c.Ctx.GetSessionVars().EnableIndexAdvisor {
+		dbname := c.Ctx.GetSessionVars().CurrentDB
+		// Construct virtual infoschema
+		virtualIS := idxadv.GetVirtualInfoschema(infoSchema, dbname, tblname)
+		vFinalPlan, err := planner.Optimize(ctx, c.Ctx, stmtNode, virtualIS)
+		if err != nil {
+			fmt.Printf("planner.Optimize with vInfoSchema error: %v\n", err)
+			panic(err)
+		}
+
+		// Get cost from plannercore.Plan interface implementation -- rootTask
+		cost, _ := plannercore.GetTaskCost(finalPlan)
+		if err != nil {
+			panic(err)
+		}
+		vcost, err := plannercore.GetTaskCost(vFinalPlan)
+		fmt.Printf("***************[cost, vcost]: [%v, %v]\n", cost, vcost)
+
+		finalPlan = nil
 	}
 
 	CountStmtNode(stmtNode, c.Ctx.GetSessionVars().InRestrictedSQL)

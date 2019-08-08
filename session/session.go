@@ -1063,6 +1063,11 @@ func (s *session) execute(ctx context.Context, sql string) (recordSets []sqlexec
 		sessionExecuteParseDurationGeneral.Observe(time.Since(startTS).Seconds())
 	}
 
+	if s.sessionVars.EnableIndexAdvisor {
+		fmt.Printf("*****************************************************Query****************************************************\n")
+		fmt.Printf("%v\n", sql)
+	}
+
 	var tempStmtNodes []ast.StmtNode
 	compiler := executor.Compiler{Ctx: s}
 	multiQuery := len(stmtNodes) > 1
@@ -1101,6 +1106,14 @@ func (s *session) execute(ctx context.Context, sql string) (recordSets []sqlexec
 		}
 		s.currentPlan = stmt.Plan
 
+		if s.sessionVars.EnableIndexAdvisor {
+			fmt.Printf("**********************************************************************Skip execument: Next Query****************************************************\n")
+			fmt.Println()
+			fmt.Println()
+			fmt.Println()
+			fmt.Println()
+			return nil, nil
+		}
 		// Step3: Execute the physical plan.
 		if recordSets, err = s.executeStatement(ctx, connID, stmtNode, stmt, recordSets, multiQuery); err != nil {
 			return nil, err

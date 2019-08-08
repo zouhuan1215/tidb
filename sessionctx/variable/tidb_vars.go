@@ -278,6 +278,9 @@ const (
 	// TiDBEnableFastAnalyze indicates to use fast analyze.
 	TiDBEnableFastAnalyze = "tidb_enable_fast_analyze"
 
+	// TiDBEnableIndexAdvisor indicates to use index advisor mode
+	TiDBEnableIndexAdvisor = "tidb_enable_index_advisor"
+
 	// TiDBExpensiveQueryTimeThreshold indicates the time threshold of expensive query.
 	TiDBExpensiveQueryTimeThreshold = "tidb_expensive_query_time_threshold"
 
@@ -344,6 +347,7 @@ const (
 	DefTiDBOptJoinReorderThreshold     = 0
 	DefTiDBDDLSlowOprThreshold         = 300
 	DefTiDBUseFastAnalyze              = false
+	DefTiDBUseIndexAdvisor             = false
 	DefTiDBSkipIsolationLevelCheck     = false
 	DefTiDBExpensiveQueryTimeThreshold = 60 // 60s
 	DefTiDBScatterRegion               = false
