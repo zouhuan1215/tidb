@@ -24,7 +24,7 @@ import (
 	"github.com/pingcap/tidb/bindinfo"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
-	idxadv "github.com/pingcap/tidb/idxadvisor"
+	"github.com/pingcap/tidb/idxadvisor"
 	"github.com/pingcap/tidb/infoschema"
 	"github.com/pingcap/tidb/metrics"
 	"github.com/pingcap/tidb/planner"
@@ -34,7 +34,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const tblname string = "orders"
+const tblname string = "idxadv"
 
 var (
 	stmtNodeCounterUse      = metrics.StmtNodeCounter.WithLabelValues("Use")
@@ -86,22 +86,55 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 	}
 
 	if c.Ctx.GetSessionVars().EnableIndexAdvisor {
-		dbname := c.Ctx.GetSessionVars().CurrentDB
+		// Get final physical plan.
+		p, err := plannercore.GetPhysicalPlan(finalPlan)
+		if err != nil {
+			panic(err)
+		}
+
+		queryInfo := plannercore.NewQueryExprInfo(p)
+		m := plannercore.NewTableInfoSets(queryInfo)
+		for _, v := range m {
+			fmt.Println(v.TblInfo.Name.L)
+			fmt.Println(v.Eq)
+			fmt.Println(v.O)
+			fmt.Println(v.Rg)
+			fmt.Println(v.Ref)
+		}
+
+		// Get final plan cost.
+		cost, err := plannercore.GetTaskCost(finalPlan)
+		if err != nil {
+			panic(err)
+		}
+		
 		// Construct virtual infoschema
-		virtualIS := idxadv.GetVirtualInfoschema(infoSchema, dbname, tblname)
+		dbname := c.Ctx.GetSessionVars().CurrentDB
+		virtualIS := idxadvisor.GetVirtualInfoschema(infoSchema, dbname, tblname)
+		
+		// Get virtual final plan.
 		vFinalPlan, err := planner.Optimize(ctx, c.Ctx, stmtNode, virtualIS)
 		if err != nil {
 			fmt.Printf("planner.Optimize with vInfoSchema error: %v\n", err)
 			panic(err)
 		}
 
-		// Get cost from plannercore.Plan interface implementation -- rootTask
-		cost, _ := plannercore.GetTaskCost(finalPlan)
+		// Get virtual final plan cost.
+		vcost, err := plannercore.GetTaskCost(vFinalPlan)
 		if err != nil {
 			panic(err)
 		}
-		vcost, err := plannercore.GetTaskCost(vFinalPlan)
-		fmt.Printf("***************[cost, vcost]: [%v, %v]\n", cost, vcost)
+		
+		// Get virtual final physical plan.
+		vPhysicalPlan, err := plannercore.GetPhysicalPlan(vFinalPlan)
+		if err != nil {
+			panic(err)
+		}
+		
+		// Get virtual indices with cost.
+		selectedIndices := idxadvisor.FindVirtualIndices(vPhysicalPlan)
+		iwc := idxadvisor.IndicesWithCost{Indices: selectedIndices, Cost: vcost}
+		idxadvisor.WriteResult(iwc, c.Ctx.GetSessionVars().ConnectionID, cost)
 
 		finalPlan = nil
 	}
