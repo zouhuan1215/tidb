@@ -34,8 +34,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const tblname string = "idxadv"
-
 var (
 	stmtNodeCounterUse      = metrics.StmtNodeCounter.WithLabelValues("Use")
 	stmtNodeCounterShow     = metrics.StmtNodeCounter.WithLabelValues("Show")
@@ -94,8 +92,10 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 
 		queryInfo := plannercore.NewQueryExprInfo(p)
 		m := plannercore.NewTableInfoSets(queryInfo)
-		for _, v := range m {
-			fmt.Println(v.TblInfo.Name.L)
+		tblNames := []string{}
+		for k, v := range m {
+			tblNames = append(tblNames, k)
+			fmt.Println(k)
 			fmt.Println(v.Eq)
 			fmt.Println(v.O)
 			fmt.Println(v.Rg)
@@ -110,7 +110,7 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 		
 		// Construct virtual infoschema
 		dbname := c.Ctx.GetSessionVars().CurrentDB
-		virtualIS := idxadvisor.GetVirtualInfoschema(infoSchema, dbname, tblname)
+		virtualIS := idxadvisor.GetVirtualInfoschema(infoSchema, dbname, tblNames)
 		
 		// Get virtual final plan.
 		vFinalPlan, err := planner.Optimize(ctx, c.Ctx, stmtNode, virtualIS)

@@ -37,6 +37,7 @@ type dataSource struct {
 	ColCnt      int
 }
 
+// Join multiple QueryExprInfos.
 func multiJoinQueryExprInfo(queryInfos []*QueryExprInfo) *QueryExprInfo {
 	if len(queryInfos) == 1 {
 		return queryInfos[0]
@@ -49,6 +50,7 @@ func multiJoinQueryExprInfo(queryInfos []*QueryExprInfo) *QueryExprInfo {
 	return q
 }
 
+// Join two QueryExprInfos.
 func doubleJoinQueryExprInfo(first *QueryExprInfo, next *QueryExprInfo) *QueryExprInfo {
 	first.ScalarFuncExpr = append(first.ScalarFuncExpr, next.ScalarFuncExpr...)
 	first.ColumnExpr = append(first.ColumnExpr, next.ColumnExpr...)
@@ -57,7 +59,7 @@ func doubleJoinQueryExprInfo(first *QueryExprInfo, next *QueryExprInfo) *QueryEx
 	return first
 }
 
-// NewQueryExprInfo constructs the expression information of the query.
+// NewQueryExprInfo constructs the expression information of the query and returns a QueryExprInfo.
 func NewQueryExprInfo(p PhysicalPlan) *QueryExprInfo {
 	queryInfos, _ := recursiveGenQueryInfo(p, []*QueryExprInfo{}, []int{})
 	return multiJoinQueryExprInfo(queryInfos)
@@ -168,6 +170,11 @@ func recursiveGenQueryInfo(in PhysicalPlan, queryInfos []*QueryExprInfo, idxs []
 			switch expr := e.(type) {
 			case *expression.Column:
 				queryInfo.ColumnExpr = append(queryInfo.ColumnExpr, []*expression.Column{expr})
+			case *expression.ScalarFunction:
+				columns := DeriveColumn(expr)
+				for _, col := range columns {
+					queryInfo.ColumnExpr = append(queryInfo.ColumnExpr, []*expression.Column{col})
+				}
 			}
 		}
 		groupByCols := []*expression.Column{}
@@ -184,6 +191,11 @@ func recursiveGenQueryInfo(in PhysicalPlan, queryInfos []*QueryExprInfo, idxs []
 			switch expr := e.(type) {
 			case *expression.Column:
 				queryInfo.ColumnExpr = append(queryInfo.ColumnExpr, []*expression.Column{expr})
+			case *expression.ScalarFunction:
+				columns := DeriveColumn(expr)
+				for _, col := range columns {
+					queryInfo.ColumnExpr = append(queryInfo.ColumnExpr, []*expression.Column{col})
+				}
 			}
 		}
 		groupByCols := []*expression.Column{}
@@ -230,43 +242,66 @@ func recursiveGenQueryInfo(in PhysicalPlan, queryInfos []*QueryExprInfo, idxs []
 	return queryInfos, idxs
 }
 
-func getAllScalarFunc(functions []*expression.ScalarFunction) []*expression.ScalarFunction {
+// DeriveScalarFunc will return a set of ScalarFunc from CNF and DNF.
+func DeriveScalarFunc(functions []*expression.ScalarFunction) []*expression.ScalarFunction {
 	allScalarFunc := []*expression.ScalarFunction{}
 	for _, f := range functions {
 		scalarFunc := []*expression.ScalarFunction{}
-		recursiveGetScalarFunc(f, &scalarFunc)
+		recursiveDeriveScalarFunc(f, &scalarFunc)
 		allScalarFunc = append(allScalarFunc, scalarFunc...)
 	}
 	return allScalarFunc
 }
 
-func recursiveGetScalarFunc(f *expression.ScalarFunction, functions *[]*expression.ScalarFunction) {
+func recursiveDeriveScalarFunc(f *expression.ScalarFunction, functions *[]*expression.ScalarFunction) {
 	switch f.FuncName.L {
 	case "or", "and":
 		args := f.GetArgs()
-		switch e := args[0].(type) {
-		case *expression.ScalarFunction:
-			recursiveGetScalarFunc(e, functions)
-		}
-		switch e := args[1].(type) {
-		case *expression.ScalarFunction:
-			recursiveGetScalarFunc(e, functions)
+		for _, arg := range args {
+			switch e := arg.(type) {
+			case *expression.ScalarFunction:
+				recursiveDeriveScalarFunc(e, functions)
+			}
 		}
 	default:
 		*functions = append(*functions, f)
 	}
 }
 
+// DeriveColumn will return a set of Column from arithmetic expression.
+func DeriveColumn(function *expression.ScalarFunction) []*expression.Column {
+	allColumns := []*expression.Column{}
+	cols := []*expression.Column{}
+	recursiveDeriveColumn(function, &cols)
+	allColumns = append(allColumns, cols...)
+	return allColumns
+}
+
+func recursiveDeriveColumn(f *expression.ScalarFunction, columns *[]*expression.Column) {
+	switch f.FuncName.L {
+	case "plus", "minus", "mul", "div":
+		args := f.GetArgs()
+		for _, arg := range args {
+			switch e := arg.(type) {
+			case *expression.ScalarFunction:
+				recursiveDeriveColumn(e, columns)
+			case *expression.Column:
+				*columns = append(*columns, e)
+			}
+		}
+	}
+}
+
 // NewTableInfoSets constructs the table and its sets for forming virtual indices with queryInfo.
-func NewTableInfoSets(queryInfo *QueryExprInfo) map[int64]*TableInfoSets {
-	tblInfoMap := make(map[int64]*TableInfoSets)
+func NewTableInfoSets(queryInfo *QueryExprInfo) map[string]*TableInfoSets {
+	tblInfoMap := make(map[string]*TableInfoSets)
 	for _, ds := range queryInfo.Ds {
 		meta := ds.Table
-		tblInfoMap[meta.ID] = &TableInfoSets{TblInfo: meta}
+		tblInfoMap[meta.Name.L] = &TableInfoSets{TblInfo: meta}
 	}
 
 	// form eq or rg
-	queryInfo.ScalarFuncExpr = getAllScalarFunc(queryInfo.ScalarFuncExpr)
+	queryInfo.ScalarFuncExpr = DeriveScalarFunc(queryInfo.ScalarFuncExpr)
 	for _, expr := range queryInfo.ScalarFuncExpr {
 		var flag string
 		switch expr.FuncName.L {
@@ -293,10 +328,6 @@ func NewTableInfoSets(queryInfo *QueryExprInfo) map[int64]*TableInfoSets {
 		}
 	}
 
-	for _, tblInfoSets := range tblInfoMap {
-		tblInfoSets.O = removeRepeatedColumnSet(tblInfoSets.O)
-	}
-
 	// form ref
 	for _, expr := range queryInfo.ProjExpr {
 		switch e := expr.(type) {
@@ -306,10 +337,19 @@ func NewTableInfoSets(queryInfo *QueryExprInfo) map[int64]*TableInfoSets {
 		}
 	}
 
+	// remove duplication
+	for _, tblInfoSets := range tblInfoMap {
+		tblInfoSets.Eq = removeRepeatedColumn(tblInfoSets.Eq)
+		tblInfoSets.O = removeRepeatedColumnSet(tblInfoSets.O)
+		tblInfoSets.Rg = removeRepeatedColumn(tblInfoSets.Rg)
+		tblInfoSets.Ref = removeRepeatedColumn(tblInfoSets.Ref)
+	}
+
 	return tblInfoMap
 }
 
-func addToSet(e *expression.Column, tblInfoMap *map[int64]*TableInfoSets, flag string) {
+// add column to Eq, Rg and Ref Set.
+func addToSet(e *expression.Column, tblInfoMap *map[string]*TableInfoSets, flag string) {
 	if e.OrigColName.O == "" {
 		return
 	}
@@ -330,7 +370,8 @@ func addToSet(e *expression.Column, tblInfoMap *map[int64]*TableInfoSets, flag s
 	}
 }
 
-func addToOSet(name string, set []model.CIStr, tblInfoMap *map[int64]*TableInfoSets) {
+// add column to O Set.
+func addToOSet(name string, set []model.CIStr, tblInfoMap *map[string]*TableInfoSets) {
 	for _, tblInfoSets := range *tblInfoMap {
 		if tblInfoSets.TblInfo.Name.L == name {
 			tblInfoSets.O = append(tblInfoSets.O, set)
@@ -338,6 +379,7 @@ func addToOSet(name string, set []model.CIStr, tblInfoMap *map[int64]*TableInfoS
 	}
 }
 
+// categorize columns by their table.
 func splitColumns(columnExpr []*expression.Column) map[string]*[]model.CIStr {
 	tblNameSet := make(map[string]*[]model.CIStr)
 	for _, expr := range columnExpr {
@@ -354,6 +396,7 @@ func splitColumns(columnExpr []*expression.Column) map[string]*[]model.CIStr {
 	return tblNameSet
 }
 
+// remove duplicates from columns.
 func removeRepeatedColumn(columns []model.CIStr) (ret []model.CIStr) {
 	ret = make([]model.CIStr, 0)
 	for _, s := range columns {
@@ -373,6 +416,7 @@ func removeRepeatedColumn(columns []model.CIStr) (ret []model.CIStr) {
 	return
 }
 
+//remove duplicates from column set.
 func removeRepeatedColumnSet(columnSet [][]model.CIStr) (ret [][]model.CIStr) {
 	ret = make([][]model.CIStr, 0)
 	for _, s := range columnSet {

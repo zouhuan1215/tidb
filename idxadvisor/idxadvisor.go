@@ -86,53 +86,72 @@ func (ia *IdxAdvisor) StartTask(query string) {
 			fmt.Printf("**********query execution error: %v\n", err)
 			panic(err)
 		}
-		if _, err := ia.dbClient.Exec("select * from IDXADV where a = 1 and c = 3"); err != nil {
+		if _, err := ia.dbClient.Exec("select * from idxadv where a = 1 and c = 3"); err != nil {
 			fmt.Printf("**********query execution error: %v\n", err)
 			panic(err)
 		}
-		if _, err := ia.dbClient.Exec("select c from IDXADV where a in (1,3)"); err != nil {
+		if _, err := ia.dbClient.Exec("select c from idxadv where a in (1,3)"); err != nil {
 			fmt.Printf("**********query execution error: %v\n", err)
 			panic(err)
 		}
-		if _, err := ia.dbClient.Exec("select c from IDXADV where a+c=2"); err != nil {
+		if _, err := ia.dbClient.Exec("select * from idxadv where a = 1 and c = 3 or b = 1"); err != nil {
 			fmt.Printf("**********query execution error: %v\n", err)
 			panic(err)
 		}
-		if _, err := ia.dbClient.Exec("select * from IDXADV where c in (select a from IDXADV where a>0)"); err != nil {
+		if _, err := ia.dbClient.Exec("select c from idxadv where a + c = 2"); err != nil {
 			fmt.Printf("**********query execution error: %v\n", err)
 			panic(err)
 		}
-		if _, err := ia.dbClient.Exec("select * from IDXADV where c in (select a from t1 where a>0)"); err != nil {
+		if _, err := ia.dbClient.Exec("select a, c, count(*) from idxadv group by a, c"); err != nil {
 			fmt.Printf("**********query execution error: %v\n", err)
 			panic(err)
 		}
-		if _, err := ia.dbClient.Exec("select * from IDXADV, t1 where IDXADV.c = t1.c"); err != nil {
+		if _, err := ia.dbClient.Exec("select * from idxadv where c in (select a from t1 where a>0)"); err != nil {
 			fmt.Printf("**********query execution error: %v\n", err)
 			panic(err)
 		}
-		if _, err := ia.dbClient.Exec("select c,sum(a) as v from idxadv where b=1 group by c having sum(a) >= (select sum(a)*0.1 from t1 where b = 1) order by v"); err != nil {
+		if _, err := ia.dbClient.Exec("select * from idxadv, t1 where IDXADV.c = t1.c"); err != nil {
+			fmt.Printf("**********query execution error: %v\n", err)
+			panic(err)
+		}
+		if _, err := ia.dbClient.Exec("select c,sum(id*(a+1)) as v from idxadv where b=1 group by c having sum(id*(a+1)) >= (select sum(a)*0.1 from t1 where b = 1) order by v"); err != nil {
 			fmt.Printf("**********query execution error: %v\n", err)
 			panic(err)
 		}
 	}
 }
-
-func GetVirtualInfoschema(is infoschema.InfoSchema, dbName, tblName string) infoschema.InfoSchema {
+/*
+// StartTask start handling queries in idxadv mode after session variable tidb_enable_index_advisor has been set
+func (ia *IdxAdvisor) StartTask(query string) {
+	if ia.IsReady() {
+		//		var err error
+		sqlFile := "/tmp/queries"
+		queries := readQuery(&sqlFile)
+		for i, query := range queries {
+			fmt.Printf("$$$$$$$$$$$$$$$$$$$$$$[%v]$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\n", i+1)
+			ia.dbClient.Exec(query)
+		}
+	}
+}
+*/
+func GetVirtualInfoschema(is infoschema.InfoSchema, dbName string, tblNames []string) infoschema.InfoSchema {
 	// Get a copy of InfoSchema
 	dbInfos := is.Clone()
 	ISCopy := infoschema.MockInfoSchemaWithDBInfos(dbInfos, is.SchemaMetaVersion())
 
 	dbname := model.NewCIStr(dbName)
-	tblname := model.NewCIStr(tblName)
-	tblCopy, err := ISCopy.TableByName(dbname, tblname)
-	if err != nil {
-		panic(err)
-	}
-	tblInfoCopy := tblCopy.Meta()
+	for _, tblname := range tblNames {
+		tblname := model.NewCIStr(tblname)
+		tblCopy, err := ISCopy.TableByName(dbname, tblname)
+		if err != nil {
+			panic(err)
+		}
+		tblInfoCopy := tblCopy.Meta()
 
-	// add virtual indexes to InfoSchemaCopy.TblInfo
-	virtualIndexes := BuildVirtualIndexes(tblInfoCopy, dbname, tblname)
-	tblInfoCopy.Indices = append(tblInfoCopy.Indices, virtualIndexes...)
+		// add virtual indexes to InfoSchemaCopy.TblInfo
+		virtualIndexes := BuildVirtualIndexes(tblInfoCopy, dbname, tblname)
+		tblInfoCopy.Indices = append(tblInfoCopy.Indices, virtualIndexes...)
+	}
 	return ISCopy
 }
 

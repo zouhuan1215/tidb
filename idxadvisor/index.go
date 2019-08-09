@@ -13,8 +13,8 @@ type IndicesWithCost struct {
     Cost    float64
 }
 
-// MIN_PRECISION is Precision for comparing cost or benefit.
-const MIN_PRECISION = 0.0001
+// Deviation is a deviation standard for comparing benefit.
+const Deviation  = 0.01
 
 // FindVirtualIndices finds the final physical plan's indices.
 func FindVirtualIndices(plan plannercore.PhysicalPlan) []*model.IndexInfo {
@@ -33,6 +33,7 @@ func travelPhysicalPlan(plan plannercore.PhysicalPlan, indices *[]*model.IndexIn
         for _, idxPlan := range t.IndexPlans {
             switch x := idxPlan.(type) {
             case *plannercore.PhysicalIndexScan:
+                x.Index.Table = x.Table.Name
                 *indices = append(*indices, x.Index)
             }
         }
@@ -40,6 +41,7 @@ func travelPhysicalPlan(plan plannercore.PhysicalPlan, indices *[]*model.IndexIn
         for _, idxPlan := range t.IndexPlans {
             switch x := idxPlan.(type) {
             case *plannercore.PhysicalIndexScan:
+                x.Index.Table = x.Table.Name
                 *indices = append(*indices, x.Index)
             }
 		}
@@ -52,8 +54,10 @@ func travelPhysicalPlan(plan plannercore.PhysicalPlan, indices *[]*model.IndexIn
 
 // WriteResult save virtual indices and cost and print them.
 func WriteResult(iwc IndicesWithCost, connectionID uint64, origCost float64) {
+    fmt.Printf("***Connection id %d, virtual physical plan's cost: %f, original cost: %f, \n***Virtual index:", connectionID, iwc.Cost, origCost)
     benefit := origCost - iwc.Cost
-    if benefit < MIN_PRECISION {
+    if benefit / origCost < Deviation {
+        fmt.Println("needn't create index")
         return
     }
 
@@ -63,12 +67,13 @@ func WriteResult(iwc IndicesWithCost, connectionID uint64, origCost float64) {
 
     indices := iwc.Indices
     ia := registeredIdxAdv[connectionID]
-    fmt.Printf("***Connection id %d, virtual physical plan's cost: %f, original cost: %f, \n***Virtual index:", connectionID, iwc.Cost, origCost)
     if len(indices) != 0 {
         for _, idx := range indices {
             fmt.Printf("(")
+            tblName := idx.Table.L
             for _, col := range idx.Columns {
-                fmt.Printf("%s ", col.Name.L)
+                idxCol := tblName + "." + col.Name.L
+                fmt.Printf("%s ", idxCol)
             }
             fmt.Printf("\b) ")
 
@@ -82,6 +87,7 @@ func WriteResult(iwc IndicesWithCost, connectionID uint64, origCost float64) {
     fmt.Println("\n----------------Result----------------")
     for _, v := range registeredIdxAdv {
         for _, i := range v.Candidate_idx {
+            fmt.Printf("%s: ", i.Index.Table.L)
             fmt.Printf("(")
             for _, col := range i.Index.Columns {
                 fmt.Printf("%s ", col.Name.L)
