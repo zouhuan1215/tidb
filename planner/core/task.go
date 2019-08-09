@@ -112,8 +112,8 @@ func (t *copTask) replaceExprColumns(replace map[string]*expression.Column) {
 	t.plan().replaceExprColumns(replace)
 }
 
-func (t *copTask) context() sessionctx.Context {
-	return t.plan().context()
+func (t *copTask) SCtx() sessionctx.Context {
+	return t.plan().SCtx()
 }
 
 func (t *copTask) statsInfo() *property.StatsInfo {
@@ -537,8 +537,8 @@ func (t *rootTask) replaceExprColumns(replace map[string]*expression.Column) {
 	t.p.replaceExprColumns(replace)
 }
 
-func (t *rootTask) context() sessionctx.Context {
-	return t.p.context()
+func (t *rootTask) SCtx() sessionctx.Context {
+	return t.p.SCtx()
 }
 
 func (t *rootTask) statsInfo() *property.StatsInfo {

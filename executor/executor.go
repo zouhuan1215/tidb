@@ -912,6 +912,7 @@ func init() {
 		}
 
 		e := &executorBuilder{is: is, ctx: sctx}
+		p, _ = plannercore.GetPhysicalPlan(p)
 		exec := e.build(p)
 		if e.err != nil {
 			return rows, err

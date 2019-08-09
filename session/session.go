@@ -1044,6 +1044,9 @@ func (s *session) execute(ctx context.Context, sql string) (recordSets []sqlexec
 		return nil, err
 	}
 
+	if strings.Contains(sql, "IDXADV") || strings.Contains(sql, "t1") {
+		fmt.Printf("###############%v##############\n", sql)
+	}
 	charsetInfo, collation := s.sessionVars.GetCharsetInfo()
 
 	// Step1: Compile query string to abstract syntax trees(ASTs).
@@ -1061,11 +1064,6 @@ func (s *session) execute(ctx context.Context, sql string) (recordSets []sqlexec
 		sessionExecuteParseDurationInternal.Observe(time.Since(startTS).Seconds())
 	} else {
 		sessionExecuteParseDurationGeneral.Observe(time.Since(startTS).Seconds())
-	}
-
-	if s.sessionVars.EnableIndexAdvisor {
-		fmt.Printf("*****************************************************Query****************************************************\n")
-		fmt.Printf("%v\n", sql)
 	}
 
 	var tempStmtNodes []ast.StmtNode
@@ -1099,6 +1097,12 @@ func (s *session) execute(ctx context.Context, sql string) (recordSets []sqlexec
 			}
 			s.handleInvalidBindRecord(ctx, stmtNode)
 		}
+
+		// if current session is in index advisor mode, skip execute statement step
+		if stmt.Plan == nil && s.GetSessionVars().EnableIndexAdvisor {
+			return nil, nil
+		}
+
 		if isInternal {
 			sessionExecuteCompileDurationInternal.Observe(time.Since(startTS).Seconds())
 		} else {
@@ -1106,14 +1110,6 @@ func (s *session) execute(ctx context.Context, sql string) (recordSets []sqlexec
 		}
 		s.currentPlan = stmt.Plan
 
-		if s.sessionVars.EnableIndexAdvisor {
-			fmt.Printf("**********************************************************************Skip execument: Next Query****************************************************\n")
-			fmt.Println()
-			fmt.Println()
-			fmt.Println()
-			fmt.Println()
-			return nil, nil
-		}
 		// Step3: Execute the physical plan.
 		if recordSets, err = s.executeStatement(ctx, connID, stmtNode, stmt, recordSets, multiQuery); err != nil {
 			return nil, err
