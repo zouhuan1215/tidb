@@ -110,6 +110,7 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 		
 		// Construct virtual infoschema
 		dbname := c.Ctx.GetSessionVars().CurrentDB
+		conn := c.Ctx.GetSessionVars().ConnectionID
 		virtualIS := idxadvisor.GetVirtualInfoschema(infoSchema, dbname, tblNames)
 		
 		// Get virtual final plan.
@@ -134,7 +135,8 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 		// Get virtual indices with cost.
 		selectedIndices := idxadvisor.FindVirtualIndices(vPhysicalPlan)
 		iwc := idxadvisor.IndicesWithCost{Indices: selectedIndices, Cost: vcost}
-		idxadvisor.WriteResult(iwc, c.Ctx.GetSessionVars().ConnectionID, cost)
+		idxadvisor.SaveVirtualIndices(infoSchema, dbname, iwc, conn, cost)
+		idxadvisor.WriteResult()
 
 		finalPlan = nil
 	}

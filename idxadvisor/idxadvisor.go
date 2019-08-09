@@ -44,7 +44,7 @@ type IdxAdvisor struct {
 
 // CandidateIdx includes in index and its benefit.
 type CandidateIdx struct {
-	Index   *model.IndexInfo
+	Index   *IdxAndTblInfo
 	Benefit float64
 }
 
@@ -83,10 +83,6 @@ func (ia *IdxAdvisor) StartTask(query string) {
 	if ia.IsReady() {
 		fmt.Printf("********idxadvisor/outline.go: Set variable has done, StartTask starts query\n")
 		if _, err := ia.dbClient.Exec(query); err != nil {
-			fmt.Printf("**********query execution error: %v\n", err)
-			panic(err)
-		}
-		if _, err := ia.dbClient.Exec("select * from idxadv where a = 1 and c = 3"); err != nil {
 			fmt.Printf("**********query execution error: %v\n", err)
 			panic(err)
 		}
@@ -147,10 +143,15 @@ func GetVirtualInfoschema(is infoschema.InfoSchema, dbName string, tblNames []st
 			panic(err)
 		}
 		tblInfoCopy := tblCopy.Meta()
+		idxInfo := tblCopy.Meta().Indices
 
 		// add virtual indexes to InfoSchemaCopy.TblInfo
 		virtualIndexes := BuildVirtualIndexes(tblInfoCopy, dbname, tblname)
-		tblInfoCopy.Indices = append(tblInfoCopy.Indices, virtualIndexes...)
+		for _, virtualIndex := range virtualIndexes {
+			if !isExistedInTable(virtualIndex, idxInfo) {
+				tblInfoCopy.Indices = append(tblInfoCopy.Indices, virtualIndex)
+			}
+		}
 	}
 	return ISCopy
 }
@@ -168,7 +169,6 @@ func BuildVirtualIndexes(tblInfo *model.TableInfo, dbname, tblname model.CIStr) 
 		result = append(result, indexinfo)
 	}
 	return result
-
 }
 
 func GenVirtualIndexCols(tblInfo *model.TableInfo, dbname, tblname model.CIStr) [][]*ast.IndexColName {
@@ -177,21 +177,19 @@ func GenVirtualIndexCols(tblInfo *model.TableInfo, dbname, tblname model.CIStr) 
 	for _, columnInfo := range columnInfos {
 		idxCols := make([]*ast.IndexColName, 1, 1)
 		idxCols[0] = BuildIdxColNameFromColInfo(columnInfo, dbname, tblname)
-		if !IndexesHasAlreadyExist(idxCols, tblInfo.Indices) {
-			result = append(result, idxCols)
-		}
+		result = append(result, idxCols)
 	}
 
 	nCols := len(columnInfos)
 	for i := 0; i < nCols; i++ {
-			for j := 0; j < nCols; j++ {
-					if i != j {
-							idxTwoCols := make([]*ast.IndexColName, 2, 2)
-							idxTwoCols[0] = BuildIdxColNameFromColInfo(columnInfos[i], dbname, tblname)
-							idxTwoCols[1] = BuildIdxColNameFromColInfo(columnInfos[j], dbname, tblname)
-							result = append(result, idxTwoCols)
-					}
+		for j := 0; j < nCols; j++ {
+			if i != j {
+				idxTwoCols := make([]*ast.IndexColName, 2, 2)
+				idxTwoCols[0] = BuildIdxColNameFromColInfo(columnInfos[i], dbname, tblname)
+				idxTwoCols[1] = BuildIdxColNameFromColInfo(columnInfos[j], dbname, tblname)
+				result = append(result, idxTwoCols)
 			}
+		}
 	}
 
 	return result
@@ -204,31 +202,31 @@ func BuildIdxColNameFromColInfo(colInfo *model.ColumnInfo, dbname, tblname model
 	return idxColName
 }
 
-// TODO: This is only single col index recomendation
-func IndexesHasAlreadyExist(idxCols []*ast.IndexColName, indices []*model.IndexInfo) bool {
-	primaryKey := findPrimaryKey(indices)
-	if primaryKey == nil {
-		return false
+func GenIndexCols(index *model.IndexInfo) []model.CIStr {
+	cols := []model.CIStr{}
+	for _, idxColumn := range index.Columns {
+		cols = append(cols, idxColumn.Name)
 	}
-	return primaryKey.Columns[0].Name.String() == idxCols[0].Column.Name.String()
+	return cols
 }
 
-func findPrimaryKey(indices []*model.IndexInfo) *model.IndexInfo {
-	if len(indices) == 0 {
-		return nil
-	}
-	for _, indexInfo := range indices {
-		if indexInfo.Primary {
-			return indexInfo
+func isExistedInTable(virtualIndex *model.IndexInfo, indices []*model.IndexInfo) bool {
+	is := false
+	virtualIndexCols := GenIndexCols(virtualIndex)
+	for _, idx := range indices {
+		indexCols := GenIndexCols(idx)
+		if reflect.DeepEqual(virtualIndexCols, indexCols) {
+			is = true
+			break
 		}
 	}
-	return nil
+	return is
 }
 
 func (ia *IdxAdvisor) addCandidate(virtualIdx *CandidateIdx) {
 	in := false
 	for _, candidateIdx := range ia.Candidate_idx {
-		if reflect.DeepEqual(candidateIdx.Index.Columns, virtualIdx.Index.Columns) {
+		if reflect.DeepEqual(candidateIdx.Index.Index.Columns, virtualIdx.Index.Index.Columns) && reflect.DeepEqual(candidateIdx.Index.Table.Name, virtualIdx.Index.Table.Name) {
 			candidateIdx.Benefit += virtualIdx.Benefit
 			in = true
 			break
