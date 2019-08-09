@@ -1,10 +1,10 @@
 package idxadvisor
 
 import (
-	"reflect"
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync/atomic"
 
 	"github.com/pingcap/parser/ast"
@@ -82,38 +82,14 @@ func (ia *IdxAdvisor) IsReady() bool {
 func (ia *IdxAdvisor) StartTask(query string) {
 	if ia.IsReady() {
 		fmt.Printf("********idxadvisor/outline.go: Set variable has done, StartTask starts query\n")
-		if _, err := ia.dbClient.Exec(query); err != nil {
-			fmt.Printf("**********query execution error: %v\n", err)
-			panic(err)
+		//		var err error
+		sqlFile := "/tmp/queries"
+		queries := readQuery(&sqlFile)
+		for i, query := range queries {
+			fmt.Printf("$$$$$$$$$$$$$$$$$$$$$$[%v]$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\n", i+1)
+			ia.dbClient.Exec(query)
 		}
-		if _, err := ia.dbClient.Exec("select * from IDXADV where a = 1 and c = 3"); err != nil {
-			fmt.Printf("**********query execution error: %v\n", err)
-			panic(err)
-		}
-		if _, err := ia.dbClient.Exec("select c from IDXADV where a in (1,3)"); err != nil {
-			fmt.Printf("**********query execution error: %v\n", err)
-			panic(err)
-		}
-		if _, err := ia.dbClient.Exec("select c from IDXADV where a+c=2"); err != nil {
-			fmt.Printf("**********query execution error: %v\n", err)
-			panic(err)
-		}
-		if _, err := ia.dbClient.Exec("select * from IDXADV where c in (select a from IDXADV where a>0)"); err != nil {
-			fmt.Printf("**********query execution error: %v\n", err)
-			panic(err)
-		}
-		if _, err := ia.dbClient.Exec("select * from IDXADV where c in (select a from t1 where a>0)"); err != nil {
-			fmt.Printf("**********query execution error: %v\n", err)
-			panic(err)
-		}
-		if _, err := ia.dbClient.Exec("select * from IDXADV, t1 where IDXADV.c = t1.c"); err != nil {
-			fmt.Printf("**********query execution error: %v\n", err)
-			panic(err)
-		}
-		if _, err := ia.dbClient.Exec("select c,sum(a) as v from idxadv where b=1 group by c having sum(a) >= (select sum(a)*0.1 from t1 where b = 1) order by v"); err != nil {
-			fmt.Printf("**********query execution error: %v\n", err)
-			panic(err)
-		}
+
 	}
 }
 
@@ -165,14 +141,14 @@ func GenVirtualIndexCols(tblInfo *model.TableInfo, dbname, tblname model.CIStr) 
 
 	nCols := len(columnInfos)
 	for i := 0; i < nCols; i++ {
-			for j := 0; j < nCols; j++ {
-					if i != j {
-							idxTwoCols := make([]*ast.IndexColName, 2, 2)
-							idxTwoCols[0] = BuildIdxColNameFromColInfo(columnInfos[i], dbname, tblname)
-							idxTwoCols[1] = BuildIdxColNameFromColInfo(columnInfos[j], dbname, tblname)
-							result = append(result, idxTwoCols)
-					}
+		for j := 0; j < nCols; j++ {
+			if i != j {
+				idxTwoCols := make([]*ast.IndexColName, 2, 2)
+				idxTwoCols[0] = BuildIdxColNameFromColInfo(columnInfos[i], dbname, tblname)
+				idxTwoCols[1] = BuildIdxColNameFromColInfo(columnInfos[j], dbname, tblname)
+				result = append(result, idxTwoCols)
 			}
+		}
 	}
 
 	return result

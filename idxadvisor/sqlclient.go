@@ -17,7 +17,7 @@ import (
 const statusPort uint = 10080
 const user string = "root"
 const address string = "127.0.0.1:4000"
-const dbname string = "test"
+const dbname string = "tpch"
 
 const retryTime = 100
 
