@@ -4,7 +4,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"reflect"
+	"strconv"
+	"strings"
 	"sync/atomic"
 
 	"github.com/pingcap/parser/ast"
@@ -14,6 +17,8 @@ import (
 )
 
 type idxAdvPool []*IdxAdvisor
+
+const queryChanSize int = 10000
 
 var registeredIdxAdv = make(map[uint64]*IdxAdvisor)
 var idxadvPool idxAdvPool = make(idxAdvPool, 0)
@@ -36,7 +41,8 @@ func (iap *idxAdvPool) empty() bool {
 }
 
 type IdxAdvisor struct {
-	dbClient *sql.DB
+	dbClient  *sql.DB
+	queryChan chan string
 
 	ready         atomic.Value
 	Candidate_idx []*CandidateIdx
@@ -59,6 +65,7 @@ func NewIdxAdv(db *sql.DB) *IdxAdvisor {
 
 // Init set session variable tidb_enable_index_advisor = true
 func (ia *IdxAdvisor) Init() error {
+	ia.queryChan = make(chan string, queryChanSize)
 	_, err := ia.dbClient.Exec("SET tidb_enable_index_advisor = 1")
 	if err == nil {
 		ia.GetReady()
@@ -81,15 +88,80 @@ func (ia *IdxAdvisor) IsReady() bool {
 // StartTask start handling queries in idxadv mode after session variable tidb_enable_index_advisor has been set
 func (ia *IdxAdvisor) StartTask(query string) {
 	if ia.IsReady() {
-		fmt.Printf("********idxadvisor/outline.go: Set variable has done, StartTask starts query\n")
-		//		var err error
-		sqlFile := "/tmp/queries"
-		queries := readQuery(&sqlFile)
-		for i, query := range queries {
-			fmt.Printf("$$$$$$$$$$$$$$$$$$$$$$[%v]$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\n", i+1)
+		sqlFile := "/tmp/queries/"
+		go readQuery(&sqlFile, ia.queryChan)
+
+		for {
+			query, ok := <-ia.queryChan
+			if !ok {
+				// No more query
+				return
+			}
+			fmt.Printf("*********************************************************************************\n")
+			fmt.Printf("%v\n", query)
+			fmt.Printf("================================Next Query ==================================\n")
 			ia.dbClient.Exec(query)
 		}
+	}
+}
 
+//func readQuery(sqlFile *string, queryChan chan string) {
+//	fd, _ := os.Open(*sqlFile)
+//	defer func() {
+//		fd.Close()
+//		close(queryChan)
+//	}()
+//
+//	scanner := bufio.NewScanner(fd)
+//
+//	// TODO: more efficient way to extract select statement from file
+//	maxCap := bufio.MaxScanTokenSize
+//	buf := make([]byte, maxCap)
+//	scanner.Buffer(buf, maxCap)
+//	split := func(data []byte, atEOF bool) (advance int, token []byte, err error) {
+//		// Define a split function that separates on "--"
+//		for i := 0; i < len(data)-1; i++ {
+//			if data[i] == 0x2d && data[i+1] == 0x2d {
+//				return i + 2, data[:i], nil
+//
+//			}
+//
+//		}
+//		return 0, data, bufio.ErrFinalToken
+//	}
+//	scanner.Split(split)
+//
+//	// Scan
+//	cnt := 1
+//	for scanner.Scan() {
+//		contents := scanner.Text()
+//		//	fmt.Printf("================================[%v]==================================\n", cnt)
+//		//	fmt.Printf("%v\n", contents)
+//		sqlBegin := strings.Index(string(contents), "select")
+//		query := contents[sqlBegin : len(contents)-1]
+//		queryChan <- query
+//		cnt++
+//	}
+//
+//	if err := scanner.Err(); err != nil {
+//		fmt.Fprintln(os.Stderr, "reading input:", err)
+//	}
+//}
+
+func readQuery(sqlFile *string, queryChan chan string) {
+	defer func() {
+		close(queryChan)
+	}()
+	for i := 1; i <= 22; i++ {
+		sqlfile := *sqlFile + strconv.Itoa(i) + ".sql"
+		contents, err := ioutil.ReadFile(sqlfile)
+		if err != nil {
+			panic(err)
+
+		}
+		sqlBegin := strings.Index(string(contents), "select")
+		query := contents[sqlBegin:]
+		queryChan <- string(query)
 	}
 }
 

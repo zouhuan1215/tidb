@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -103,19 +101,4 @@ func runSqlClient(overrider configOverrider, query string) error {
 	}
 	return nil
 
-}
-
-func readQuery(sqlFile *string) []string {
-	queries := make([]string, 0, 0)
-	for i := 1; i <= 22; i++ {
-		sqlfile := *sqlFile + "/" + strconv.Itoa(i) + ".sql"
-		contents, err := ioutil.ReadFile(sqlfile)
-		if err != nil {
-			panic(err)
-		}
-		sqlBegin := strings.Index(string(contents), "select")
-		query := contents[sqlBegin:]
-		queries = append(queries, string(query))
-	}
-	return queries
 }
