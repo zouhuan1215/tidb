@@ -339,10 +339,10 @@ func NewTableInfoSets(queryInfo *QueryExprInfo) map[string]*TableInfoSets {
 
 	// remove duplication
 	for _, tblInfoSets := range tblInfoMap {
-		tblInfoSets.Eq = removeRepeatedColumn(tblInfoSets.Eq)
-		tblInfoSets.O = removeRepeatedColumnSet(tblInfoSets.O)
-		tblInfoSets.Rg = removeRepeatedColumn(tblInfoSets.Rg)
-		tblInfoSets.Ref = removeRepeatedColumn(tblInfoSets.Ref)
+		tblInfoSets.Eq = RemoveRepeatedColumn(tblInfoSets.Eq)
+		tblInfoSets.O = RemoveRepeatedColumnSet(tblInfoSets.O)
+		tblInfoSets.Rg = RemoveRepeatedColumn(tblInfoSets.Rg)
+		tblInfoSets.Ref = RemoveRepeatedColumn(tblInfoSets.Ref)
 	}
 
 	return tblInfoMap
@@ -390,14 +390,14 @@ func splitColumns(columnExpr []*expression.Column) map[string]*[]model.CIStr {
 	}
 
 	for _, columns := range tblNameSet {
-		*columns = removeRepeatedColumn(*columns)
+		*columns = RemoveRepeatedColumn(*columns)
 	}
 
 	return tblNameSet
 }
 
-// remove duplicates from columns.
-func removeRepeatedColumn(columns []model.CIStr) (ret []model.CIStr) {
+// RemoveRepeatedColumn removes duplicates from columns.
+func RemoveRepeatedColumn(columns []model.CIStr) (ret []model.CIStr) {
 	ret = make([]model.CIStr, 0)
 	for _, s := range columns {
 		if len(ret) == 0 {
@@ -416,8 +416,8 @@ func removeRepeatedColumn(columns []model.CIStr) (ret []model.CIStr) {
 	return
 }
 
-//remove duplicates from column set.
-func removeRepeatedColumnSet(columnSet [][]model.CIStr) (ret [][]model.CIStr) {
+// RemoveRepeatedColumnSet removes duplicates from column set.
+func RemoveRepeatedColumnSet(columnSet [][]model.CIStr) (ret [][]model.CIStr) {
 	ret = make([][]model.CIStr, 0)
 	for _, s := range columnSet {
 		if len(ret) == 0 {

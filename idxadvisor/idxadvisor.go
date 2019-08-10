@@ -11,6 +11,7 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/infoschema"
+	plannercore "github.com/pingcap/tidb/planner/core"
 )
 
 type idxAdvPool []*IdxAdvisor
@@ -86,11 +87,11 @@ func (ia *IdxAdvisor) StartTask(query string) {
 			fmt.Printf("**********query execution error: %v\n", err)
 			panic(err)
 		}
-		if _, err := ia.dbClient.Exec("select c from idxadv where a in (1,3)"); err != nil {
+		if _, err := ia.dbClient.Exec("select a from idxadv where c in (1,3)"); err != nil {
 			fmt.Printf("**********query execution error: %v\n", err)
 			panic(err)
 		}
-		if _, err := ia.dbClient.Exec("select * from idxadv where a = 1 and c = 3 or b = 1"); err != nil {
+		if _, err := ia.dbClient.Exec("select * from idxadv where c = 3 and a = 1 or b = 1"); err != nil {
 			fmt.Printf("**********query execution error: %v\n", err)
 			panic(err)
 		}
@@ -115,6 +116,7 @@ func (ia *IdxAdvisor) StartTask(query string) {
 			panic(err)
 		}
 	}
+	WritFinaleResult()
 }
 /*
 // StartTask start handling queries in idxadv mode after session variable tidb_enable_index_advisor has been set
@@ -130,13 +132,13 @@ func (ia *IdxAdvisor) StartTask(query string) {
 	}
 }
 */
-func GetVirtualInfoschema(is infoschema.InfoSchema, dbName string, tblNames []string) infoschema.InfoSchema {
+func GetVirtualInfoschema(is infoschema.InfoSchema, dbName string, tableInfoSets map[string]*plannercore.TableInfoSets) infoschema.InfoSchema {
 	// Get a copy of InfoSchema
 	dbInfos := is.Clone()
 	ISCopy := infoschema.MockInfoSchemaWithDBInfos(dbInfos, is.SchemaMetaVersion())
 
 	dbname := model.NewCIStr(dbName)
-	for _, tblname := range tblNames {
+	for tblname, tblInfoSets := range tableInfoSets {
 		tblname := model.NewCIStr(tblname)
 		tblCopy, err := ISCopy.TableByName(dbname, tblname)
 		if err != nil {
@@ -146,7 +148,7 @@ func GetVirtualInfoschema(is infoschema.InfoSchema, dbName string, tblNames []st
 		idxInfo := tblCopy.Meta().Indices
 
 		// add virtual indexes to InfoSchemaCopy.TblInfo
-		virtualIndexes := BuildVirtualIndexes(tblInfoCopy, dbname, tblname)
+		virtualIndexes := BuildVirtualIndexes(tblInfoCopy, dbname, tblname, tblInfoSets)
 		for _, virtualIndex := range virtualIndexes {
 			if !isExistedInTable(virtualIndex, idxInfo) {
 				tblInfoCopy.Indices = append(tblInfoCopy.Indices, virtualIndex)
@@ -156,14 +158,14 @@ func GetVirtualInfoschema(is infoschema.InfoSchema, dbName string, tblNames []st
 	return ISCopy
 }
 
-func BuildVirtualIndexes(tblInfo *model.TableInfo, dbname, tblname model.CIStr) []*model.IndexInfo {
-	indexes := GenVirtualIndexCols(tblInfo, dbname, tblname)
+func BuildVirtualIndexes(tblInfo *model.TableInfo, dbname, tblname model.CIStr, tblInfoSets *plannercore.TableInfoSets) []*model.IndexInfo {
+	indexes := GenVirtualIndexCols(tblInfo, dbname, tblname, tblInfoSets)
 	result := make([]*model.IndexInfo, 0)
 	for i, idxColNames := range indexes {
 		indexName := model.NewCIStr("vIndex" + string(i))
 		indexinfo, err := ddl.BuildIndexInfo(tblInfo, indexName, idxColNames, model.StatePublic)
 		if err != nil {
-			fmt.Printf("***************BuildVirtualIndexes error: %v!\n", err)
+			fmt.Printf("BuildVirtualIndexes error: %v!\n", err)
 			panic(err)
 		}
 		result = append(result, indexinfo)
@@ -171,15 +173,18 @@ func BuildVirtualIndexes(tblInfo *model.TableInfo, dbname, tblname model.CIStr) 
 	return result
 }
 
-func GenVirtualIndexCols(tblInfo *model.TableInfo, dbname, tblname model.CIStr) [][]*ast.IndexColName {
+func GenVirtualIndexCols(tblInfo *model.TableInfo, dbname, tblname model.CIStr, tblInfoSets *plannercore.TableInfoSets) [][]*ast.IndexColName {
 	columnInfos := tblInfo.Columns
 	var result [][]*ast.IndexColName
+
+	// one column
 	for _, columnInfo := range columnInfos {
 		idxCols := make([]*ast.IndexColName, 1, 1)
 		idxCols[0] = BuildIdxColNameFromColInfo(columnInfo, dbname, tblname)
 		result = append(result, idxCols)
 	}
 
+	// two columns
 	nCols := len(columnInfos)
 	for i := 0; i < nCols; i++ {
 		for j := 0; j < nCols; j++ {
@@ -192,7 +197,78 @@ func GenVirtualIndexCols(tblInfo *model.TableInfo, dbname, tblname model.CIStr) 
 		}
 	}
 
+	// multi columns
+	candidateCols := [][]model.CIStr{}
+	eq := tblInfoSets.Eq
+	o := tblInfoSets.O
+	rg := tblInfoSets.Rg
+	ref := tblInfoSets.Ref
+
+	// EQ + O + RANGE + REF
+	cols := [][]model.CIStr{}
+	for i, oCols := range o {
+		cols = append(cols, []model.CIStr{})
+		addToCandidateCols(eq, &cols[i], &candidateCols)
+		addToCandidateCols(oCols, &cols[i], &candidateCols)
+		addToCandidateCols(rg, &cols[i], &candidateCols)
+		addToCandidateCols(ref, &cols[i], &candidateCols)
+	}
+	if len(cols) == 0 {
+		cols = append(cols, []model.CIStr{})
+		addToCandidateCols(eq, &cols[0], &candidateCols)
+		addToCandidateCols(rg, &cols[0], &candidateCols)
+		addToCandidateCols(ref, &cols[0], &candidateCols)
+	}
+
+	// O + EQ + RANGE + REF
+	cols = cols[:0]
+	for i, oCols := range o {
+		cols = append(cols, []model.CIStr{})
+		addToCandidateCols(oCols, &cols[i], &candidateCols)
+		addToCandidateCols(eq, &cols[i], &candidateCols)
+		addToCandidateCols(rg, &cols[i], &candidateCols)
+		addToCandidateCols(ref, &cols[i], &candidateCols)
+	}
+	if len(cols) == 0 {
+		cols = append(cols, []model.CIStr{})
+		addToCandidateCols(eq, &cols[0], &candidateCols)
+		addToCandidateCols(rg, &cols[0], &candidateCols)
+		addToCandidateCols(ref, &cols[0], &candidateCols)
+	}
+
+	candidateCols = plannercore.RemoveRepeatedColumnSet(candidateCols)
+	if len(candidateCols) > 0 {
+		fmt.Printf("table %s multi candidate index: ", tblname)
+		fmt.Println(candidateCols)
+	}
+	for _, candidateColumns := range candidateCols {
+		idxCols := make([]*ast.IndexColName, len(candidateColumns), len(candidateColumns))
+		for i, column := range candidateColumns {
+			columnInfo := new(model.ColumnInfo)
+			for _, tmpColumn := range columnInfos {
+				if tmpColumn.Name.L == column.L {
+					columnInfo = tmpColumn
+					break
+				}
+			}
+			idxCols[i] = BuildIdxColNameFromColInfo(columnInfo, dbname, tblname)
+		}
+		result = append(result, idxCols)
+	}
+
 	return result
+}
+
+func addToCandidateCols(readyCols []model.CIStr, cols *[]model.CIStr, candidateCols *[][]model.CIStr) {
+	if len(readyCols) == 0 {
+		return
+	}
+
+	*cols = append(*cols, readyCols...)
+	*cols = plannercore.RemoveRepeatedColumn(*cols)
+	if len(*cols) > 2 {
+		*candidateCols = append(*candidateCols, *cols)
+	}
 }
 
 func BuildIdxColNameFromColInfo(colInfo *model.ColumnInfo, dbname, tblname model.CIStr) *ast.IndexColName {

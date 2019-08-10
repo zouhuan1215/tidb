@@ -20,8 +20,10 @@ type IdxAndTblInfo struct {
 	Table	*model.TableInfo
 }
 
-// Deviation is a deviation standard for comparing benefit.
-const Deviation = 0.01
+const(
+	// Deviation is a deviation standard for comparing benefit.
+	Deviation = 0.01
+) 
 
 // FindVirtualIndices finds the final physical plan's indices.
 func FindVirtualIndices(plan plannercore.PhysicalPlan) []*IdxAndTblInfo {
@@ -63,9 +65,9 @@ func travelPhysicalPlan(plan plannercore.PhysicalPlan, indices *[]*IdxAndTblInfo
 
 // SaveVirtualIndices saves virtual indices and their benefit.
 func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWithCost, connectionID uint64, origCost float64) {
-    fmt.Printf("***Connection id %d, virtual physical plan's cost: %f, original cost: %f, \n***Virtual index:", connectionID, iwc.Cost, origCost)
-    benefit := (origCost - iwc.Cost) / origCost
-	if benefit < Deviation {
+    fmt.Printf("***Connection id %d, virtual physical plan's cost: %f, original cost: %f \n", connectionID, iwc.Cost, origCost)
+    benefit := origCost - iwc.Cost
+	if benefit / origCost < Deviation {
 		fmt.Println("needn't create index")
 		return
 	}
@@ -76,6 +78,7 @@ func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWith
 
 	indices := iwc.Indices
 	ia := registeredIdxAdv[connectionID]
+	fmt.Printf("***Index:")
 	for _, idx := range indices {
         table, err := is.TableByName(model.NewCIStr(dbname), idx.Table.Name)
         if err != nil {
@@ -83,7 +86,7 @@ func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWith
         }
 
         if isExistedInTable(idx.Index, table.Meta().Indices) {
-            continue
+			continue
         }
 
         candidateIdx := &CandidateIdx{Index: idx,
@@ -111,7 +114,23 @@ func WriteResult() {
 			for _, col := range i.Index.Index.Columns {
 				fmt.Printf("%s ", col.Name.L)
 			}
-			fmt.Printf("\b)    %f    \n", i.Benefit)
+			fmt.Printf("\b)    %f\n", i.Benefit)
+		}
+		fmt.Println("-----------------------------------------------")
+	}
+}
+
+// WritFinaleResult saves virtual indices and their benefit.
+func WritFinaleResult() {
+	fmt.Println("----------------------Result----------------------")
+	for _, v := range registeredIdxAdv {
+		for _, i := range v.Candidate_idx {
+			fmt.Printf("%s: ", i.Index.Index.Table.L)
+			fmt.Printf("(")
+			for _, col := range i.Index.Index.Columns {
+				fmt.Printf("%s ", col.Name.L)
+			}
+			fmt.Printf("\b)    %f\n", i.Benefit)
 		}
 		fmt.Println("-----------------------------------------------")
 	}

@@ -92,15 +92,6 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 
 		queryInfo := plannercore.NewQueryExprInfo(p)
 		m := plannercore.NewTableInfoSets(queryInfo)
-		tblNames := []string{}
-		for k, v := range m {
-			tblNames = append(tblNames, k)
-			fmt.Println(k)
-			fmt.Println(v.Eq)
-			fmt.Println(v.O)
-			fmt.Println(v.Rg)
-			fmt.Println(v.Ref)
-		}
 
 		// Get final plan cost.
 		cost, err := plannercore.GetTaskCost(finalPlan)
@@ -111,7 +102,7 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 		// Construct virtual infoschema
 		dbname := c.Ctx.GetSessionVars().CurrentDB
 		conn := c.Ctx.GetSessionVars().ConnectionID
-		virtualIS := idxadvisor.GetVirtualInfoschema(infoSchema, dbname, tblNames)
+		virtualIS := idxadvisor.GetVirtualInfoschema(infoSchema, dbname, m)
 		
 		// Get virtual final plan.
 		vFinalPlan, err := planner.Optimize(ctx, c.Ctx, stmtNode, virtualIS)
@@ -136,7 +127,6 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 		selectedIndices := idxadvisor.FindVirtualIndices(vPhysicalPlan)
 		iwc := idxadvisor.IndicesWithCost{Indices: selectedIndices, Cost: vcost}
 		idxadvisor.SaveVirtualIndices(infoSchema, dbname, iwc, conn, cost)
-		idxadvisor.WriteResult()
 
 		finalPlan = nil
 	}
