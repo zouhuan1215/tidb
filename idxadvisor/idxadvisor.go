@@ -42,7 +42,8 @@ func (iap *idxAdvPool) empty() bool {
 
 type IdxAdvisor struct {
 	dbClient  *sql.DB
-	queryChan chan string
+	queryChan chan string // queryChan transfer query read from file
+	queryCnt  uint64      // record how many queries have been evaluated in current session
 
 	ready         atomic.Value
 	Candidate_idx []*CandidateIdx
@@ -61,6 +62,19 @@ func NewIdxAdv(db *sql.DB) *IdxAdvisor {
 
 	idxadvPool.push(ia)
 	return ia
+}
+
+func GetIdxAdv(connID uint64) *IdxAdvisor {
+	if ia, ok := registeredIdxAdv[connID]; ok {
+		return ia
+	}
+
+	if ia, err := idxadvPool.pop(); err != nil {
+		panic(err)
+	} else {
+		registeredIdxAdv[connID] = ia
+		return ia
+	}
 }
 
 // Init set session variable tidb_enable_index_advisor = true
@@ -91,15 +105,15 @@ func (ia *IdxAdvisor) StartTask(query string) {
 		sqlFile := "/tmp/queries/"
 		go readQuery(&sqlFile, ia.queryChan)
 
+		cnt := 0
 		for {
+			cnt++
 			query, ok := <-ia.queryChan
 			if !ok {
 				// No more query
 				return
 			}
-			fmt.Printf("*********************************************************************************\n")
-			fmt.Printf("%v\n", query)
-			fmt.Printf("================================Next Query ==================================\n")
+			fmt.Printf("**************************************[%v]******************************************\n", cnt)
 			ia.dbClient.Exec(query)
 		}
 	}
