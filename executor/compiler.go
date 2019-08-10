@@ -83,7 +83,8 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 		return nil, err
 	}
 
-	if c.Ctx.GetSessionVars().EnableIndexAdvisor {
+	// If current query is "SHOW WARNINGS", ignore it
+	if c.Ctx.GetSessionVars().EnableIndexAdvisor && !strings.HasPrefix(plannercore.ToString(finalPlan), "Show") {
 		// Get final physical plan.
 		p, err := plannercore.GetPhysicalPlan(finalPlan)
 		if err != nil {
@@ -98,12 +99,13 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 		if err != nil {
 			panic(err)
 		}
-		
+
 		// Construct virtual infoschema
 		dbname := c.Ctx.GetSessionVars().CurrentDB
+
 		conn := c.Ctx.GetSessionVars().ConnectionID
 		virtualIS := idxadvisor.GetVirtualInfoschema(infoSchema, dbname, m)
-		
+
 		// Get virtual final plan.
 		vFinalPlan, err := planner.Optimize(ctx, c.Ctx, stmtNode, virtualIS)
 		if err != nil {
@@ -116,13 +118,13 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 		if err != nil {
 			panic(err)
 		}
-		
+
 		// Get virtual final physical plan.
 		vPhysicalPlan, err := plannercore.GetPhysicalPlan(vFinalPlan)
 		if err != nil {
 			panic(err)
 		}
-		
+
 		// Get virtual indices with cost.
 		selectedIndices := idxadvisor.FindVirtualIndices(vPhysicalPlan)
 		iwc := idxadvisor.IndicesWithCost{Indices: selectedIndices, Cost: vcost}

@@ -180,8 +180,19 @@ func physicalOptimize(logic LogicalPlan) (PhysicalPlan, error) {
 
 	err = t.plan().ResolveIndices()
 
-	if vt, ok := t.(*rootTask); ok && logic.SCtx().GetSessionVars().EnableIndexAdvisor {
-		return vt, err
+	if logic.SCtx().GetSessionVars().EnableIndexAdvisor {
+		if _, ok := logic.(*LogicalMaxOneRow); !ok {
+			switch vt := t.(type) {
+			case *rootTask:
+				return vt, nil
+			case *copTask:
+				return vt, nil
+			default:
+				return nil, errors.New("GetRootTaskCost: Plan interface is not implemented by rootTask")
+
+			}
+
+		}
 	}
 	return t.plan(), err
 }
