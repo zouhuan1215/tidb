@@ -34,8 +34,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const tblname string = "orders"
-
 var (
 	stmtNodeCounterUse      = metrics.StmtNodeCounter.WithLabelValues("Use")
 	stmtNodeCounterShow     = metrics.StmtNodeCounter.WithLabelValues("Show")
@@ -95,13 +93,6 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 
 		queryInfo := plannercore.NewQueryExprInfo(p)
 		m := plannercore.NewTableInfoSets(queryInfo)
-		for _, v := range m {
-			fmt.Println(v.TblInfo.Name.L)
-			fmt.Println(v.Eq)
-			fmt.Println(v.O)
-			fmt.Println(v.Rg)
-			fmt.Println(v.Ref)
-		}
 
 		// Get final plan cost.
 		cost, err := plannercore.GetTaskCost(finalPlan)
@@ -111,7 +102,9 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 
 		// Construct virtual infoschema
 		dbname := c.Ctx.GetSessionVars().CurrentDB
-		virtualIS := idxadvisor.GetVirtualInfoschema(infoSchema, dbname, tblname)
+
+		conn := c.Ctx.GetSessionVars().ConnectionID
+		virtualIS := idxadvisor.GetVirtualInfoschema(infoSchema, dbname, m)
 
 		// Get virtual final plan.
 		vFinalPlan, err := planner.Optimize(ctx, c.Ctx, stmtNode, virtualIS)
@@ -135,7 +128,7 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 		// Get virtual indices with cost.
 		selectedIndices := idxadvisor.FindVirtualIndices(vPhysicalPlan)
 		iwc := idxadvisor.IndicesWithCost{Indices: selectedIndices, Cost: vcost}
-		idxadvisor.WriteResult(iwc, c.Ctx.GetSessionVars().ConnectionID, cost)
+		idxadvisor.SaveVirtualIndices(infoSchema, dbname, iwc, conn, cost)
 
 		finalPlan = nil
 	}

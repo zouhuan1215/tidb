@@ -202,7 +202,7 @@ func physicalOptimize(logic LogicalPlan) (PhysicalPlan, error) {
 	if sessionVars.EnableIndexAdvisorTest {
 		if _, ok := logic.(*LogicalMaxOneRow); !ok {
 			queryCounter++
-			outputInfo := fmt.Sprintf("%-10d%v\n", queryCounter, t.cost())
+			outputInfo := fmt.Sprintf("%-10d%f\n", queryCounter, t.cost())
 			outputFile := fmt.Sprintf("/tmp/indexadvisor/%v_TCOST", sessionVars.ConnectionID)
 			fd, err := os.OpenFile(outputFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
 			if err != nil {

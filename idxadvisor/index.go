@@ -3,8 +3,10 @@ package idxadvisor
 import (
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/tidb/infoschema"
 	plannercore "github.com/pingcap/tidb/planner/core"
 )
 
@@ -13,21 +15,29 @@ const sepString string = "    "
 
 // IndicesWithCost includes in indices and their physical plan cost.
 type IndicesWithCost struct {
-	Indices []*model.IndexInfo
+	Indices []*IdxAndTblInfo
 	Cost    float64
 }
 
-// MIN_PRECISION is Precision for comparing cost or benefit.
-const MIN_PRECISION = 0.0001
+// IdxAndTblInfo provides a IndexInfo and its TableInfo.
+type IdxAndTblInfo struct {
+	Index *model.IndexInfo
+	Table *model.TableInfo
+}
+
+const (
+	// Deviation is a deviation standard for comparing benefit.
+	Deviation = 0.01
+)
 
 // FindVirtualIndices finds the final physical plan's indices.
-func FindVirtualIndices(plan plannercore.PhysicalPlan) []*model.IndexInfo {
-	indices := []*model.IndexInfo{}
+func FindVirtualIndices(plan plannercore.PhysicalPlan) []*IdxAndTblInfo {
+	indices := []*IdxAndTblInfo{}
 	travelPhysicalPlan(plan, &indices)
 	return indices
 }
 
-func travelPhysicalPlan(plan plannercore.PhysicalPlan, indices *[]*model.IndexInfo) {
+func travelPhysicalPlan(plan plannercore.PhysicalPlan, indices *[]*IdxAndTblInfo) {
 	if plan == nil {
 		return
 	}
@@ -37,14 +47,18 @@ func travelPhysicalPlan(plan plannercore.PhysicalPlan, indices *[]*model.IndexIn
 		for _, idxPlan := range t.IndexPlans {
 			switch x := idxPlan.(type) {
 			case *plannercore.PhysicalIndexScan:
-				*indices = append(*indices, x.Index)
+				x.Index.Table = x.Table.Name
+				index := &IdxAndTblInfo{Index: x.Index, Table: x.Table}
+				*indices = append(*indices, index)
 			}
 		}
 	case *plannercore.PhysicalIndexLookUpReader:
 		for _, idxPlan := range t.IndexPlans {
 			switch x := idxPlan.(type) {
 			case *plannercore.PhysicalIndexScan:
-				*indices = append(*indices, x.Index)
+				x.Index.Table = x.Table.Name
+				index := &IdxAndTblInfo{Index: x.Index, Table: x.Table}
+				*indices = append(*indices, index)
 			}
 		}
 	}
@@ -54,54 +68,53 @@ func travelPhysicalPlan(plan plannercore.PhysicalPlan, indices *[]*model.IndexIn
 	}
 }
 
-// WriteResult save virtual indices and cost and print them.
-func WriteResult(iwc IndicesWithCost, connID uint64, origCost float64) {
-	indices := iwc.Indices
+// SaveVirtualIndices saves virtual indices and their benefit.
+func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWithCost, connID uint64, origCost float64) {
 	ia := GetIdxAdv(connID)
+	indices := iwc.Indices
 	ia.queryCnt++
-	WriteResultToFile(connID, ia.queryCnt, origCost, iwc.Cost, indices)
+	//	WriteResultToFile(connID, ia.queryCnt, origCost, iwc.Cost, indices)
 
+	fmt.Printf("***Connection id %d, virtual physical plan's cost: %f, original cost: %f \n", connID, iwc.Cost, origCost)
 	benefit := origCost - iwc.Cost
-	if benefit < MIN_PRECISION {
+	if benefit/origCost < Deviation {
+		fmt.Println("needn't create index")
 		return
 	}
 
-	fmt.Printf("***Connection id %d, virtual physical plan's cost: %f, original cost: %f, \n***Virtual index:", connID, iwc.Cost, origCost)
-	if len(indices) > 0 {
-		for _, idx := range indices {
-			fmt.Printf("(")
-			for _, col := range idx.Columns {
-				fmt.Printf("%s ", col.Name.L)
-			}
-			fmt.Printf("\b) ")
-
-			candidateIdx := &CandidateIdx{Index: idx,
-				Benefit: benefit,
-			}
-			ia.addCandidate(candidateIdx)
+	fmt.Printf("***Index:")
+	for _, idx := range indices {
+		table, err := is.TableByName(model.NewCIStr(dbname), idx.Table.Name)
+		if err != nil {
+			panic(err)
 		}
-	}
 
-	fmt.Println("\n----------------Result----------------")
-	for _, v := range registeredIdxAdv {
-		for _, i := range v.Candidate_idx {
-			fmt.Printf("(")
-			for _, col := range i.Index.Columns {
-				fmt.Printf("%s ", col.Name.L)
-			}
-			fmt.Printf("\b)    %f    \n", i.Benefit)
+		if isExistedInTable(idx.Index, table.Meta().Indices) {
+			continue
 		}
-		fmt.Println("--------------------------------------")
+
+		candidateIdx := &CandidateIdx{Index: idx,
+			Benefit: benefit,
+		}
+		ia.addCandidate(candidateIdx)
+
+		fmt.Printf(" (")
+		tblName := idx.Index.Table.L
+		for _, col := range idx.Index.Columns {
+			idxCol := tblName + "." + col.Name.L
+			fmt.Printf("%s ", idxCol)
+		}
+		fmt.Printf("\b)\n")
 	}
 }
 
 func WriteResultToFile(connID uint64, queryCnt uint64, origCost, vcost float64, indices []*model.IndexInfo) {
 	origCostPrefix := fmt.Sprintf("%v_OCOST", connID)
-	origCostOut := fmt.Sprintf("%-10d%v\n", queryCnt, origCost)
+	origCostOut := fmt.Sprintf("%-10d%f\n", queryCnt, origCost)
 	WriteToFile(origCostPrefix, origCostOut)
 
 	virtualCostPrefix := fmt.Sprintf("%v_OVCOST", connID)
-	virtualCostOut := fmt.Sprintf("%-10d%v\n", queryCnt, vcost)
+	virtualCostOut := fmt.Sprintf("%-10d%f\n", queryCnt, vcost)
 	WriteToFile(virtualCostPrefix, virtualCostOut)
 
 	virtualIdxPrefix := fmt.Sprintf("%v_OINDEX", connID)
@@ -109,7 +122,7 @@ func WriteResultToFile(connID uint64, queryCnt uint64, origCost, vcost float64, 
 	WriteToFile(virtualIdxPrefix, virtualIdxOut)
 
 	origSummaryPrefix := fmt.Sprintf("%v_ORIGIN", connID)
-	origSummaryOut := fmt.Sprintf("%-10d%v%v%v%v{%v}\n", queryCnt, origCost, sepString, vcost, sepString, BuildIdxOutputInfo(indices))
+	origSummaryOut := fmt.Sprintf("%-10d%f%v%f%v{%v}\n", queryCnt, origCost, sepString, vcost, sepString, BuildIdxOutputInfo(indices))
 	WriteToFile(origSummaryPrefix, origSummaryOut)
 }
 
@@ -138,4 +151,37 @@ func BuildIdxOutputInfo(indices []*model.IndexInfo) string {
 		vIdxesInfo = fmt.Sprintf("%s%s", vIdxesInfo, singleIdx)
 	}
 	return vIdxesInfo
+}
+
+// WriteResult prints virtual indices and their benefit.
+func WriteResult() {
+	fmt.Println("----------------------Result----------------------")
+	for _, v := range registeredIdxAdv {
+		for _, i := range v.Candidate_idx {
+			fmt.Printf("%s: ", i.Index.Index.Table.L)
+			fmt.Printf("(")
+			for _, col := range i.Index.Index.Columns {
+				fmt.Printf("%s ", col.Name.L)
+			}
+			fmt.Printf("\b)    %f\n", i.Benefit)
+		}
+		fmt.Println("-----------------------------------------------")
+	}
+}
+
+// WriteFinaleResult saves virtual indices and their benefit.
+func WriteFinaleResult() {
+	fmt.Println("----------------------Result----------------------")
+	for _, v := range registeredIdxAdv {
+		sort.Sort(v.Candidate_idx)
+		for _, i := range v.Candidate_idx {
+			fmt.Printf("%s: ", i.Index.Index.Table.L)
+			fmt.Printf("(")
+			for _, col := range i.Index.Index.Columns {
+				fmt.Printf("%s ", col.Name.L)
+			}
+			fmt.Printf("\b)    %f\n", i.Benefit)
+		}
+		fmt.Println("-----------------------------------------------")
+	}
 }
