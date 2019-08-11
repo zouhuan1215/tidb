@@ -233,6 +233,7 @@ func readQuery(sqlFile string, queryChan chan string) {
 
 	for i := 1; i <= 22; i++ {
 		sqlfile := sqlFile + strconv.Itoa(i) + ".sql"
+
 		contents, err := ioutil.ReadFile(sqlfile)
 		if err != nil {
 			panic(err)
@@ -328,64 +329,67 @@ func GenVirtualIndexCols(tblInfo *model.TableInfo, dbname, tblname model.CIStr, 
 	}
 
 	// multi columns
-	//	candidateCols := [][]model.CIStr{}
-	//	eq := tblInfoSets.Eq
-	//	o := tblInfoSets.O
-	//	rg := tblInfoSets.Rg
-	//	ref := tblInfoSets.Ref
-	//
-	//	// EQ + O + RANGE + REF
-	//	cols := [][]model.CIStr{}
-	//	for i, oCols := range o {
-	//		cols = append(cols, []model.CIStr{})
-	//		addToCandidateCols(eq, &cols[i], &candidateCols)
-	//		addToCandidateCols(oCols, &cols[i], &candidateCols)
-	//		addToCandidateCols(rg, &cols[i], &candidateCols)
-	//		addToCandidateCols(ref, &cols[i], &candidateCols)
-	//	}
-	//	if len(cols) == 0 {
-	//		cols = append(cols, []model.CIStr{})
-	//		addToCandidateCols(eq, &cols[0], &candidateCols)
-	//		addToCandidateCols(rg, &cols[0], &candidateCols)
-	//		addToCandidateCols(ref, &cols[0], &candidateCols)
-	//	}
-	//
-	//	// O + EQ + RANGE + REF
-	//	cols = cols[:0]
-	//	for i, oCols := range o {
-	//		cols = append(cols, []model.CIStr{})
-	//		addToCandidateCols(oCols, &cols[i], &candidateCols)
-	//		addToCandidateCols(eq, &cols[i], &candidateCols)
-	//		addToCandidateCols(rg, &cols[i], &candidateCols)
-	//		addToCandidateCols(ref, &cols[i], &candidateCols)
-	//	}
-	//	if len(cols) == 0 {
-	//		cols = append(cols, []model.CIStr{})
-	//		addToCandidateCols(eq, &cols[0], &candidateCols)
-	//		addToCandidateCols(rg, &cols[0], &candidateCols)
-	//		addToCandidateCols(ref, &cols[0], &candidateCols)
-	//	}
-	//
-	//	candidateCols = plannercore.RemoveRepeatedColumnSet(candidateCols)
-	//	if len(candidateCols) > 0 {
-	//		fmt.Printf("table %s multi candidate index: ", tblname)
-	//		fmt.Println(candidateCols)
-	//	}
-	//	for _, candidateColumns := range candidateCols {
-	//		idxCols := make([]*ast.IndexColName, len(candidateColumns), len(candidateColumns))
-	//		for i, column := range candidateColumns {
-	//			columnInfo := new(model.ColumnInfo)
-	//			for _, tmpColumn := range columnInfos {
-	//				if tmpColumn.Name.L == column.L {
-	//					columnInfo = tmpColumn
-	//					break
-	//				}
-	//			}
-	//			idxCols[i] = BuildIdxColNameFromColInfo(columnInfo, dbname, tblname)
-	//		}
-	//		result = append(result, idxCols)
-	//
-	//	}
+	candidateCols := [][]model.CIStr{}
+	eq := tblInfoSets.Eq
+	o := tblInfoSets.O
+	rg := tblInfoSets.Rg
+	ref := tblInfoSets.Ref
+
+	// EQ + O + RANGE + REF
+	cols := [][]model.CIStr{}
+	for i, oCols := range o {
+		cols = append(cols, []model.CIStr{})
+		addToCandidateCols(eq, &cols[i], &candidateCols)
+		addToCandidateCols(oCols, &cols[i], &candidateCols)
+		addToCandidateCols(rg, &cols[i], &candidateCols)
+		addToCandidateCols(ref, &cols[i], &candidateCols)
+	}
+	if len(cols) == 0 {
+		cols = append(cols, []model.CIStr{})
+		addToCandidateCols(eq, &cols[0], &candidateCols)
+		addToCandidateCols(rg, &cols[0], &candidateCols)
+		addToCandidateCols(ref, &cols[0], &candidateCols)
+	}
+
+	// O + EQ + RANGE + REF
+	cols = cols[:0]
+	for i, oCols := range o {
+		cols = append(cols, []model.CIStr{})
+		addToCandidateCols(oCols, &cols[i], &candidateCols)
+		addToCandidateCols(eq, &cols[i], &candidateCols)
+		addToCandidateCols(rg, &cols[i], &candidateCols)
+		addToCandidateCols(ref, &cols[i], &candidateCols)
+	}
+	if len(cols) == 0 {
+		cols = append(cols, []model.CIStr{})
+		addToCandidateCols(eq, &cols[0], &candidateCols)
+		addToCandidateCols(rg, &cols[0], &candidateCols)
+		addToCandidateCols(ref, &cols[0], &candidateCols)
+	}
+
+	candidateCols = plannercore.RemoveRepeatedColumnSet(candidateCols)
+	if len(candidateCols) > 0 {
+		fmt.Printf("table %s multi candidate index: ", tblname)
+		fmt.Println(candidateCols)
+	}
+	for _, candidateColumns := range candidateCols {
+		idxCols := []*ast.IndexColName{}
+		for _, column := range candidateColumns {
+			columnInfo := new(model.ColumnInfo)
+			isExisted := false
+			for _, tmpColumn := range columnInfos {
+				if tmpColumn.Name.L == column.L {
+					columnInfo = tmpColumn
+					isExisted = true
+					break
+				}
+			}
+			if isExisted {
+				idxCols = append(idxCols, BuildIdxColNameFromColInfo(columnInfo, dbname, tblname))
+			}
+		}
+		result = append(result, idxCols)
+	}
 
 	return result
 }

@@ -1,6 +1,9 @@
 package idxadvisor
 
 import (
+	"strings"
+	"io"
+	"bufio"
 	"fmt"
 	"os"
 	"sort"
@@ -10,8 +13,9 @@ import (
 	plannercore "github.com/pingcap/tidb/planner/core"
 )
 
-const outputPath string = "/tmp/indexadvisor"
-const sepString string = "    "
+const outputPath string = "/home/iggie"
+const sepString string  = "    "
+const TopN = 3
 
 // IndicesWithCost includes in indices and their physical plan cost.
 type IndicesWithCost struct {
@@ -113,27 +117,30 @@ func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWith
 	}
 }
 
-func WriteResultToFile(connID uint64, queryCnt uint64, origCost, vcost float64, indices []*model.IndexInfo) {
+func writeResultToFile(connID uint64, queryCnt uint64, origCost, vcost float64, indices []*model.IndexInfo) {
 	origCostPrefix := fmt.Sprintf("%v_OCOST", connID)
 	origCostOut := fmt.Sprintf("%-10d%f\n", queryCnt, origCost)
-	WriteToFile(origCostPrefix, origCostOut)
+	writeToFile(origCostPrefix, origCostOut, true)
 
 	virtualCostPrefix := fmt.Sprintf("%v_OVCOST", connID)
 	virtualCostOut := fmt.Sprintf("%-10d%f\n", queryCnt, vcost)
-	WriteToFile(virtualCostPrefix, virtualCostOut)
+	writeToFile(virtualCostPrefix, virtualCostOut, true)
 
 	virtualIdxPrefix := fmt.Sprintf("%v_OINDEX", connID)
-	virtualIdxOut := fmt.Sprintf("%-10d{%s}\n", queryCnt, BuildIdxOutputInfo(indices))
-	WriteToFile(virtualIdxPrefix, virtualIdxOut)
+	virtualIdxOut := fmt.Sprintf("%-10d{%s}\n", queryCnt, buildIdxOutputInfo(indices))
+	writeToFile(virtualIdxPrefix, virtualIdxOut, true)
 
 	origSummaryPrefix := fmt.Sprintf("%v_ORIGIN", connID)
-	origSummaryOut := fmt.Sprintf("%-10d%f%v%f%v{%v}\n", queryCnt, origCost, sepString, vcost, sepString, BuildIdxOutputInfo(indices))
-	WriteToFile(origSummaryPrefix, origSummaryOut)
+	origSummaryOut := fmt.Sprintf("%-10d%f%v%f%v{%v}\n", queryCnt, origCost, sepString, vcost, sepString, buildIdxOutputInfo(indices))
+	writeToFile(origSummaryPrefix, origSummaryOut, true)
 }
 
-func WriteToFile(filePrefix, content string) {
-	fileName := fmt.Sprintf("%s/%s", outputPath, filePrefix)
+func writeToFile(filename, content string, append bool) {
+	fileName := fmt.Sprintf("%s/%s", outputPath, filename)
 	fd, err := os.OpenFile(fileName, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
+	if !append {
+		fd, err = os.OpenFile(fileName, os.O_CREATE|os.O_RDWR, 0666)
+	}
 	if err != nil {
 		panic(err)
 	}
@@ -142,7 +149,29 @@ func WriteToFile(filePrefix, content string) {
 	fd.WriteString(content)
 }
 
-func BuildIdxOutputInfo(indices []*model.IndexInfo) string {
+func readFile(filename string) (lines []string, err error) {
+	fp, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer fp.Close()
+
+	r := bufio.NewReader(fp)
+	for {
+		line, _, err := r.ReadLine()
+		if err != nil {
+			if err == io.EOF {
+				err = nil
+				break
+			}
+		} else {
+			lines = append(lines, string(line))
+		}
+	}
+	return
+}
+
+func buildIdxOutputInfo(indices []*model.IndexInfo) string {
 	var vIdxesInfo string
 	if len(indices) == 0 {
 		return ""
@@ -160,17 +189,45 @@ func BuildIdxOutputInfo(indices []*model.IndexInfo) string {
 
 // WriteFinaleResult saves virtual indices and their benefit.
 func WriteFinaleResult() {
-	fmt.Println("----------------------Result----------------------")
-	for _, v := range registeredIdxAdv {
+	for id, v := range registeredIdxAdv {
 		sort.Sort(v.Candidate_idx)
+		resFile := fmt.Sprintf("%v_RESULT", id)
+		content := ""
 		for _, i := range v.Candidate_idx {
-			fmt.Printf("%s: ", i.Index.Index.Table.L)
-			fmt.Printf("(")
+			content += fmt.Sprintf("%s: (", i.Index.Index.Table.L)
 			for _, col := range i.Index.Index.Columns {
-				fmt.Printf("%s ", col.Name.L)
+				content += fmt.Sprintf("%s,", col.Name.L)
 			}
-			fmt.Printf("\b)    %f\n", i.Benefit)
+			content = content[:len(content)-1]
+			content += fmt.Sprintf(")    %f\n", i.Benefit)
 		}
-		fmt.Println("-----------------------------------------------")
+		writeToFile(resFile, content, false)
+		
+		res, _:= CreateTopNIndexSQL(resFile, TopN)
+		fmt.Println(res)
 	}
+}
+
+// CreateTopNIndexSQL generates the SQL statements for the first N virtual indices.
+func CreateTopNIndexSQL(filename string, n int) (sql []string, err error) {
+	fileName := fmt.Sprintf("%s/%s", outputPath, filename)
+	lines, err := readFile(fileName)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(lines) < n {
+		n = len(lines)
+	}
+
+	for i := 0; i < n; i++ {
+		res := strings.Fields(lines[i])
+		if len(res) != 3 {
+			panic("split error")
+		}
+		tbl := res[0][:len(res[0])-1]
+		idx := res[1]
+		sql = append(sql, fmt.Sprintf("create index virtual_index_%d on %s%s;", i+1, tbl, idx))
+	}
+	return 
 }
