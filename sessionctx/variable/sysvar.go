@@ -683,6 +683,7 @@ var defaultSysVars = []*SysVar{
 	{ScopeGlobal | ScopeSession, TiDBEnableWindowFunction, BoolToIntStr(DefEnableWindowFunction)},
 	{ScopeGlobal | ScopeSession, TiDBEnableFastAnalyze, BoolToIntStr(DefTiDBUseFastAnalyze)},
 	{ScopeGlobal | ScopeSession, TiDBEnableIndexAdvisor, BoolToIntStr(DefTiDBUseIndexAdvisor)},
+	{ScopeGlobal | ScopeSession, TiDBEnableIndexAdvisorTest, BoolToIntStr(DefTiDBUseIndexAdvisorTest)},
 	{ScopeGlobal | ScopeSession, TiDBSkipIsolationLevelCheck, BoolToIntStr(DefTiDBSkipIsolationLevelCheck)},
 	/* The following variable is defined as session scope but is actually server scope. */
 	{ScopeSession, TiDBGeneralLog, strconv.Itoa(DefTiDBGeneralLog)},

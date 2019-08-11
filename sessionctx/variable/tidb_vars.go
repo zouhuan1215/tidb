@@ -281,6 +281,9 @@ const (
 	// TiDBEnableIndexAdvisor indicates to use index advisor mode
 	TiDBEnableIndexAdvisor = "tidb_enable_index_advisor"
 
+	// TiDBEnableIndexAdvisorTest indicates to use index advisor test mode
+	TiDBEnableIndexAdvisorTest = "tidb_enable_index_advisor_test"
+
 	// TiDBExpensiveQueryTimeThreshold indicates the time threshold of expensive query.
 	TiDBExpensiveQueryTimeThreshold = "tidb_expensive_query_time_threshold"
 
@@ -348,6 +351,7 @@ const (
 	DefTiDBDDLSlowOprThreshold         = 300
 	DefTiDBUseFastAnalyze              = false
 	DefTiDBUseIndexAdvisor             = false
+	DefTiDBUseIndexAdvisorTest         = false
 	DefTiDBSkipIsolationLevelCheck     = false
 	DefTiDBExpensiveQueryTimeThreshold = 60 // 60s
 	DefTiDBScatterRegion               = false

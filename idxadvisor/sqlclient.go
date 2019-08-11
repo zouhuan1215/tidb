@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -43,13 +41,13 @@ func getDSN(overriders ...configOverrider) string {
 }
 
 // runSqlClient runs an index advisor client
-func RunSqlClient(query string) error {
+func RunSqlClient(sqlFile string) error {
 	fmt.Println("*******************************************")
 	fmt.Printf("RunSqlClient\n")
 	fmt.Println("*******************************************")
 	waitUntilServerOnline(statusPort)
 	var defMySQLConfig configOverrider
-	return runSqlClient(defMySQLConfig, query)
+	return runSqlClient(defMySQLConfig, sqlFile)
 }
 
 func waitUntilServerOnline(statusPort uint) {
@@ -85,7 +83,7 @@ func waitUntilServerOnline(statusPort uint) {
 
 }
 
-func runSqlClient(overrider configOverrider, query string) error {
+func runSqlClient(overrider configOverrider, sqlFile string) error {
 	db, err := sql.Open("mysql", getDSN(overrider))
 	defer db.Close()
 	if err != nil {
@@ -98,24 +96,9 @@ func runSqlClient(overrider configOverrider, query string) error {
 		}
 
 		fmt.Printf("===============ia.StartTask(query)===========\n")
-		ia.StartTask(query)
+		ia.StartTask(sqlFile)
 
 	}
 	return nil
 
-}
-
-func readQuery(sqlFile *string) []string {
-	queries := make([]string, 0, 0)
-	for i := 1; i <= 22; i++ {
-		sqlfile := *sqlFile + "/" + strconv.Itoa(i) + ".sql"
-		contents, err := ioutil.ReadFile(sqlfile)
-		if err != nil {
-			panic(err)
-		}
-		sqlBegin := strings.Index(string(contents), "select")
-		query := contents[sqlBegin:]
-		queries = append(queries, string(query))
-	}
-	return queries
 }

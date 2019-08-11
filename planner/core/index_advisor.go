@@ -404,7 +404,7 @@ func RemoveRepeatedColumn(columns []model.CIStr) (ret []model.CIStr) {
 			ret = append(ret, s)
 		} else {
 			for i, v := range ret {
-				if reflect.DeepEqual(s, v) {
+				if s.L == v.L {
 					break
 				}
 				if i == len(ret)-1 {

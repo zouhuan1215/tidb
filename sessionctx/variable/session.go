@@ -383,6 +383,9 @@ type SessionVars struct {
 	// EnableIndexAdvisor indicates whether to enter index advisor mode
 	EnableIndexAdvisor bool
 
+	// EnableIndexAdvisorTest indicates whether to enter index advisor test mode
+	EnableIndexAdvisorTest bool
+
 	// TxnMode indicates should be pessimistic or optimistic.
 	TxnMode string
 
@@ -820,6 +823,9 @@ func (s *SessionVars) SetSystemVar(name string, val string) error {
 		s.EnableFastAnalyze = TiDBOptOn(val)
 	case TiDBEnableIndexAdvisor:
 		s.EnableIndexAdvisor = TiDBOptOn(val)
+	case TiDBEnableIndexAdvisorTest:
+		s.EnableIndexAdvisorTest = TiDBOptOn(val)
+
 	case TiDBWaitSplitRegionFinish:
 		s.WaitSplitRegionFinish = TiDBOptOn(val)
 	case TiDBWaitSplitRegionTimeout:

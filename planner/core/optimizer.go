@@ -15,7 +15,9 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"math"
+	"os"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/ast"
@@ -36,6 +38,7 @@ var OptimizeAstNode func(ctx context.Context, sctx sessionctx.Context, node ast.
 
 // AllowCartesianProduct means whether tidb allows cartesian join without equal conditions.
 var AllowCartesianProduct = atomic.NewBool(true)
+var queryCounter uint64
 
 const (
 	flagPrunColumns uint64 = 1 << iota
@@ -180,7 +183,8 @@ func physicalOptimize(logic LogicalPlan) (PhysicalPlan, error) {
 
 	err = t.plan().ResolveIndices()
 
-	if logic.SCtx().GetSessionVars().EnableIndexAdvisor {
+	sessionVars := logic.SCtx().GetSessionVars()
+	if sessionVars.EnableIndexAdvisor {
 		if _, ok := logic.(*LogicalMaxOneRow); !ok {
 			switch vt := t.(type) {
 			case *rootTask:
@@ -192,6 +196,21 @@ func physicalOptimize(logic LogicalPlan) (PhysicalPlan, error) {
 
 			}
 
+		}
+	}
+
+	if sessionVars.EnableIndexAdvisorTest {
+		if _, ok := logic.(*LogicalMaxOneRow); !ok {
+			queryCounter++
+			outputInfo := fmt.Sprintf("%-10d%f\n", queryCounter, t.cost())
+			outputFile := fmt.Sprintf("/tmp/indexadvisor/%v_TCOST", sessionVars.ConnectionID)
+			fd, err := os.OpenFile(outputFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
+			if err != nil {
+				panic(err)
+			}
+			defer fd.Close()
+
+			fd.WriteString(outputInfo)
 		}
 	}
 	return t.plan(), err
