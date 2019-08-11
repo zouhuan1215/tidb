@@ -41,13 +41,13 @@ func getDSN(overriders ...configOverrider) string {
 }
 
 // runSqlClient runs an index advisor client
-func RunSqlClient(query string) error {
+func RunSqlClient(sqlFile string) error {
 	fmt.Println("*******************************************")
 	fmt.Printf("RunSqlClient\n")
 	fmt.Println("*******************************************")
 	waitUntilServerOnline(statusPort)
 	var defMySQLConfig configOverrider
-	return runSqlClient(defMySQLConfig, query)
+	return runSqlClient(defMySQLConfig, sqlFile)
 }
 
 func waitUntilServerOnline(statusPort uint) {
@@ -83,7 +83,7 @@ func waitUntilServerOnline(statusPort uint) {
 
 }
 
-func runSqlClient(overrider configOverrider, query string) error {
+func runSqlClient(overrider configOverrider, sqlFile string) error {
 	db, err := sql.Open("mysql", getDSN(overrider))
 	defer db.Close()
 	if err != nil {
@@ -96,7 +96,7 @@ func runSqlClient(overrider configOverrider, query string) error {
 		}
 
 		fmt.Printf("===============ia.StartTask(query)===========\n")
-		ia.StartTask(query)
+		ia.StartTask(sqlFile)
 
 	}
 	return nil

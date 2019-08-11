@@ -25,6 +25,9 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware v1.0.1-0.20190118093823-f849b5445de4
 	github.com/grpc-ecosystem/grpc-gateway v1.5.1 // indirect
 	github.com/json-iterator/go v1.1.6 // indirect
+	github.com/juju/errors v0.0.0-20190806202954-0232dcc7464d
+	github.com/juju/loggo v0.0.0-20190526231331-6e530bcce5d8 // indirect
+	github.com/juju/testing v0.0.0-20190723135506-ce30eb24acd2 // indirect
 	github.com/klauspost/cpuid v0.0.0-20170728055534-ae7887de9fa5
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
@@ -71,6 +74,7 @@ require (
 	golang.org/x/tools v0.0.0-20190130214255-bb1329dc71a0
 	google.golang.org/genproto v0.0.0-20190108161440-ae2f86662275 // indirect
 	google.golang.org/grpc v1.17.0
+	gopkg.in/mgo.v2 v2.0.0-20180705113604-9856a29383ce // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 	sourcegraph.com/sourcegraph/appdash v0.0.0-20180531100431-4c381bd170b4
 	sourcegraph.com/sourcegraph/appdash-data v0.0.0-20151005221446-73f23eafcf67
