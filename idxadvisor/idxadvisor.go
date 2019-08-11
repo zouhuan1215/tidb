@@ -66,10 +66,20 @@ func (ci CandidateIdxes) Less(i, j int) bool { return ci[i].Benefit > ci[j].Bene
 func (ci CandidateIdxes) Swap(i, j int) { ci[i], ci[j] = ci[j], ci[i] }
 
 // NewIdxAdv create a new IdxAdvisor.
+// TODO: *sql.DB is not supposed to a member of IdxAdvisor.
+//       *sql.DB can interacts with idxadvisor by session variable
 func NewIdxAdv(db *sql.DB) *IdxAdvisor {
 	ia := &IdxAdvisor{dbClient: db}
 	ia.ready.Store(false)
 
+	idxadvPool.push(ia)
+	return ia
+}
+
+// MockNewIdxAdv() return *IdxAdvisor without initiating dbClient member
+func MockNewIdxAdv() *IdxAdvisor {
+	ia := &IdxAdvisor{}
+	ia.ready.Store(false)
 	idxadvPool.push(ia)
 	return ia
 }
@@ -84,6 +94,45 @@ func GetIdxAdv(connID uint64) *IdxAdvisor {
 	} else {
 		registeredIdxAdv[connID] = ia
 		return ia
+	}
+}
+
+//// GetRecommendIdx return recommend index within given connection
+//func GetRecommendIdx(connID uint64) (*CandidateIdxes, error) {
+//	if ia, ok := registeredIdxAdv[connID]; !ok {
+//		return nil, errors.New(fmt.Sprintf(
+//			"bad attempt to get recommend index with no registered index advisor. connID: %v\n", connID))
+//	} else {
+//		return &ia.Candidate_idx, nil
+//	}
+//}
+
+// GetRecommendIdxStr return recommend index in string format. Used in test
+func GetRecommendIdxStr(connID uint64) (string, error) {
+	if ia, ok := registeredIdxAdv[connID]; !ok {
+		return "", errors.New(fmt.Sprintf(
+			"bad attempt to get recommend index with no registered index advisor. connID: %v\n", connID))
+	} else {
+		idxes := ia.Candidate_idx
+		if len(idxes) == 0 {
+			return "", nil
+		}
+
+		var idxesStr string
+		for _, idx := range idxes {
+			var idxStr string
+			idxStr = fmt.Sprintf("%s: (", idx.Index.Index.Table.L)
+			cols := idx.Index.Index.Columns
+			colLen := len(cols)
+
+			for i := 0; i < len(cols)-1; i++ {
+				idxStr = fmt.Sprintf("%s%s ", idxStr, cols[i].Name.L)
+			}
+
+			idxStr = fmt.Sprintf("%s%s)", idxStr, cols[colLen-1].Name.L)
+			idxesStr = fmt.Sprintf("%s%s,", idxesStr, idxStr)
+		}
+		return idxesStr[:len(idxesStr)-1], nil
 	}
 }
 
@@ -110,10 +159,9 @@ func (ia *IdxAdvisor) IsReady() bool {
 }
 
 // StartTask start handling queries in idxadv mode after session variable tidb_enable_index_advisor has been set
-func (ia *IdxAdvisor) StartTask(query string) {
+func (ia *IdxAdvisor) StartTask(sqlFile string) {
 	if ia.IsReady() {
-		sqlFile := "/tmp/queries/"
-		go readQuery(&sqlFile, ia.queryChan)
+		go readQuery(sqlFile, ia.queryChan)
 
 		cnt := 0
 		for {
@@ -173,16 +221,22 @@ func (ia *IdxAdvisor) StartTask(query string) {
 //	}
 //}
 
-func readQuery(sqlFile *string, queryChan chan string) {
+func readQuery(sqlFile string, queryChan chan string) {
 	defer func() {
 		close(queryChan)
 	}()
-	for i := 1; i <= 7; i++ {
-		sqlfile := *sqlFile + strconv.Itoa(i) + ".sql"
+
+	// If readQuery is called in idxadv_test.go, return immediately
+	if sqlFile == "test-mode" {
+		return
+	}
+
+	for i := 1; i <= 22; i++ {
+		sqlfile := sqlFile + strconv.Itoa(i) + ".sql"
+
 		contents, err := ioutil.ReadFile(sqlfile)
 		if err != nil {
 			panic(err)
-
 		}
 		sqlBegin := strings.Index(string(contents), "select")
 		query := contents[sqlBegin:]

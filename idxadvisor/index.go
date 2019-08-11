@@ -77,11 +77,12 @@ func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWith
 	ia := GetIdxAdv(connID)
 	indices := iwc.Indices
 	ia.queryCnt++
-	idxes := []*model.IndexInfo{}
-	for _, index := range indices {
-		idxes = append(idxes, index.Index)
+
+	idxes := make([]*model.IndexInfo, len(indices), len(indices))
+	for i, indice := range indices {
+		idxes[i] = indice.Index
 	}
-	writeResultToFile(connID, ia.queryCnt, origCost, iwc.Cost, idxes)
+	WriteResultToFile(connID, ia.queryCnt, origCost, iwc.Cost, idxes)
 
 	fmt.Printf("***Connection id %d, virtual physical plan's cost: %f, original cost: %f \n", connID, iwc.Cost, origCost)
 	benefit := origCost - iwc.Cost
@@ -184,22 +185,6 @@ func buildIdxOutputInfo(indices []*model.IndexInfo) string {
 		vIdxesInfo = fmt.Sprintf("%s%s", vIdxesInfo, singleIdx)
 	}
 	return vIdxesInfo
-}
-
-// WriteResult prints virtual indices and their benefit.
-func WriteResult() {
-	fmt.Println("----------------------Result----------------------")
-	for _, v := range registeredIdxAdv {
-		for _, i := range v.Candidate_idx {
-			fmt.Printf("%s: ", i.Index.Index.Table.L)
-			fmt.Printf("(")
-			for _, col := range i.Index.Index.Columns {
-				fmt.Printf("%s,", col.Name.L)
-			}
-			fmt.Printf("\b)    %f\n", i.Benefit)
-		}
-		fmt.Println("-----------------------------------------------")
-	}
 }
 
 // WriteFinaleResult saves virtual indices and their benefit.
