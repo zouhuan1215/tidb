@@ -215,6 +215,42 @@ func (*testSuite) TestT(c *C) {
 func (testSuite) TestMockInfoSchema(c *C) {
 	tblID := int64(1234)
 	tblName := model.NewCIStr("tbl_m")
+	dbID := int64(111)
+	dbName := model.NewCIStr("Test")
+	tableInfo := &model.TableInfo{
+		ID:    tblID,
+		Name:  tblName,
+		State: model.StatePublic,
+	}
+
+	colInfo := &model.ColumnInfo{
+		State:     model.StatePublic,
+		Offset:    0,
+		Name:      model.NewCIStr("h"),
+		FieldType: *types.NewFieldType(mysql.TypeLong),
+		ID:        1,
+	}
+	tableInfo.Columns = []*model.ColumnInfo{colInfo}
+
+	dbInfo := &model.DBInfo{
+		ID:     dbID,
+		Name:   dbName,
+		Tables: []*model.TableInfo{tableInfo},
+		State:  model.StatePublic,
+	}
+
+	dbInfos := []*model.DBInfo{dbInfo}
+
+	is := infoschema.MockInfoSchemaWithDBInfos(dbInfos, int64(1))
+	tbl, ok := is.TableByID(tblID)
+	c.Assert(ok, IsTrue)
+	c.Assert(tbl.Meta().Name, Equals, tblName)
+	c.Assert(tbl.Cols()[0].ColumnInfo, Equals, colInfo)
+}
+
+func (testSuite) TestMockInfoSchemaWithDBInfo(c *C) {
+	tblID := int64(1234)
+	tblName := model.NewCIStr("tbl_m")
 	tableInfo := &model.TableInfo{
 		ID:    tblID,
 		Name:  tblName,
@@ -227,6 +263,7 @@ func (testSuite) TestMockInfoSchema(c *C) {
 		FieldType: *types.NewFieldType(mysql.TypeLong),
 		ID:        1,
 	}
+
 	tableInfo.Columns = []*model.ColumnInfo{colInfo}
 	is := infoschema.MockInfoSchema([]*model.TableInfo{tableInfo})
 	tbl, ok := is.TableByID(tblID)

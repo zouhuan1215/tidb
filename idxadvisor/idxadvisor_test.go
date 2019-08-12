@@ -10,6 +10,7 @@ import (
 	"github.com/juju/errors"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/idxadvisor"
 	idxadv "github.com/pingcap/tidb/idxadvisor"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/session"
@@ -57,7 +58,8 @@ func (s *testAnalyzeSuite) loadTableStats(fileName string, dom *domain.Domain) e
 
 func (s *testAnalyzeSuite) TestSQLClient(c *C) {
 	// TestSQLClient requires a running TiDB server or mysql server
-	err := idxadv.RunSqlClient("test-mode")
+	loginInfo := "mysql -h 127.0.0.1 -P4000 -u root -D test"
+	err := idxadv.RunIdxAdvisor("test-mode", loginInfo, "10080", "/tmp/test-idxadvisor")
 	c.Assert(err, IsNil, Commentf("TestSQLClient requires a running TiDB server or mysql server, default server address: [127.0.0.1: 4000]"))
 }
 
@@ -67,7 +69,7 @@ func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
 	c.Assert(err, IsNil)
 
 	testkit := testkit.NewTestKit(c, store)
-	idxadv.MockNewIdxAdv()
+	idxadvisor.MockNewIdxAdv("/tmp/test-queries", "/tmp/test-idxadvisor", "test")
 	defer func() {
 		dom.Close()
 		store.Close()
@@ -76,13 +78,16 @@ func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
 	testkit.MustExec("use test")
 	testkit.MustExec("drop table if exists t, t1")
 	testkit.MustExec("create table t (a int primary key, b int, c varchar(200), d datetime DEFAULT CURRENT_TIMESTAMP, e int, ts timestamp DEFAULT CURRENT_TIMESTAMP)")
-	testkit.MustExec("create table t1 (a int, b int)")
+	testkit.MustExec("create table t1 (a int, b int, c int, d int)")
 
 	err = s.loadTableStats("analyzesSuiteTestIndexReadT.json", dom)
 	c.Assert(err, IsNil)
 
-	for i := 1; i < 16; i++ {
-		testkit.MustExec(fmt.Sprintf("insert into t1 values(%v, %v)", i, i))
+	for i := 1; i < 8; i++ {
+		testkit.MustExec(fmt.Sprintf("insert into t1 values(%v, %v, %v, %v)", i, i, 1, 1))
+	}
+	for i := 8; i < 16; i++ {
+		testkit.MustExec(fmt.Sprintf("insert into t1 values(%v, %v, %v, %v)", i, i, 2, 2))
 	}
 	testkit.MustExec("analyze table t1")
 
@@ -97,9 +102,15 @@ func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
 		res string
 	}{
 		{
-			sql: []string{"select count(*) from t group by e",
-				"select * from t order by e limit 10"},
-			res: "t: (e)",
+			sql: []string{
+				"select count(*) from t group by e",
+				"select a, b from t1 where c in (1,3)",
+				"select c, d, count(*) from t1 group by c, d",
+				"select * from t where b in (select c from t1 where c>0)",
+				"select a from t1 order by b desc",
+				"select t.a from t join t1 on t.b = t1.b",
+			},
+			res: "t: (e),t1: (c a b),t1: (c d),t1: (c),t: (b),t1: (b a),t1: (b)",
 		},
 	}
 
@@ -108,7 +119,7 @@ func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
 		for _, sql := range tt.sql {
 			testkit.Exec(sql)
 		}
-		res, err := idxadv.GetRecommendIdxStr(connID)
+		res, err := idxadvisor.GetRecommendIdxStr(connID)
 		c.Assert(err, IsNil)
 		c.Assert(res, Equals, tt.res, Commentf("for %v", tt.sql))
 	}

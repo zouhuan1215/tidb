@@ -5,57 +5,43 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
+	"github.com/pingcap/tidb/util/logutil"
+	"github.com/pingcap/tidb/util/printer"
+	"go.uber.org/zap"
 )
-
-// statusPort is tidb server's status port
-// TODO: statusPort should be sysVars, get it from global vars
-const statusPort uint = 10080
-const user string = "root"
-const address string = "127.0.0.1:4000"
-const dbname string = "tpch"
 
 const retryTime = 100
 
-var defaultDSNConfig = mysql.Config{
-	User:   user,
-	Net:    "tcp",
-	Addr:   address,
-	DBName: dbname,
-	Strict: true,
-}
-
-type configOverrider func(*mysql.Config)
-
-// getDSN generates a DSN string for MySQL connection.
-func getDSN(overriders ...configOverrider) string {
-	var config = defaultDSNConfig
-	for _, overrider := range overriders {
-		if overrider != nil {
-			overrider(&config)
-		}
+// RunIdxAdvisor runs an index advisor client
+func RunIdxAdvisor(sqlFile string, loginInfo string, serverStatPort string, outputPath string) error {
+	printer.PrintIdxAdvisorInfo()
+	logutil.BgLogger().Info(fmt.Sprintf("[mysql client login info]: %v\n[query file]: %v\n", loginInfo, sqlFile))
+	statusPort, err := strconv.ParseUint(serverStatPort, 10, 64)
+	if err != nil {
+		logutil.BgLogger().Error("failed to convert string type to uint type",
+			zap.String("Got server's status port", serverStatPort))
 	}
-	return config.FormatDSN()
+	waitUntilServerOnline(uint(statusPort), loginInfo)
+
+	err = runIdxAdvisor(sqlFile, loginInfo, outputPath)
+	if err != nil {
+		logutil.BgLogger().Error("failed initializing index advisor failed",
+			zap.Error(err))
+		return err
+	}
+
+	return nil
 }
 
-// runSqlClient runs an index advisor client
-func RunSqlClient(sqlFile string) error {
-	fmt.Println("*******************************************")
-	fmt.Printf("RunSqlClient\n")
-	fmt.Println("*******************************************")
-	waitUntilServerOnline(statusPort)
-	var defMySQLConfig configOverrider
-	return runSqlClient(defMySQLConfig, sqlFile)
-}
-
-func waitUntilServerOnline(statusPort uint) {
+func waitUntilServerOnline(statusPort uint, loginInfo string) {
 	// connect server
 	retry := 0
 	for ; retry < retryTime; retry++ {
 		time.Sleep(time.Millisecond * 10)
-		db, err := sql.Open("mysql", getDSN())
+		db, err := sql.Open("mysql", loginInfo)
 		if err == nil {
 			db.Close()
 			break
@@ -63,7 +49,7 @@ func waitUntilServerOnline(statusPort uint) {
 	}
 
 	if retry == retryTime {
-		fmt.Printf("failed to connect DB in every 10ms\n")
+		logutil.BgLogger().Warn("failed to connect DB in every 10ms\n")
 	}
 
 	// connect http status
@@ -78,27 +64,24 @@ func waitUntilServerOnline(statusPort uint) {
 		time.Sleep(time.Millisecond * 10)
 	}
 	if retry == retryTime {
-		fmt.Printf("failed to connect HTTP status in every 10 ms")
+		logutil.BgLogger().Warn("failed to connect HTTP status in every 10 ms")
 	}
-
 }
 
-func runSqlClient(overrider configOverrider, sqlFile string) error {
-	db, err := sql.Open("mysql", getDSN(overrider))
+func runIdxAdvisor(sqlFile string, loginInfo string, outputPath string) error {
+	db, err := sql.Open("mysql", loginInfo)
 	defer db.Close()
 	if err != nil {
 		return err
 	} else {
-		ia := NewIdxAdv(db)
+		ia := NewIdxAdv(db, sqlFile, outputPath)
 		err := ia.Init()
 		if err != nil {
 			return err
 		}
 
-		fmt.Printf("===============ia.StartTask(query)===========\n")
-		ia.StartTask(sqlFile)
-
+		logutil.BgLogger().Info("[Index Advisor] start evaluating queries")
+		return ia.StartTask()
 	}
 	return nil
-
 }
