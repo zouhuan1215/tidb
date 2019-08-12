@@ -56,8 +56,9 @@ func (s *testAnalyzeSuite) loadTableStats(fileName string, dom *domain.Domain) e
 }
 
 func (s *testAnalyzeSuite) TestSQLClient(c *C) {
+	// TestSQLClient requires a running TiDB server or mysql server
 	err := idxadv.RunSqlClient("test-mode")
-	c.Assert(err, IsNil)
+	c.Assert(err, IsNil, Commentf("TestSQLClient requires a running TiDB server or mysql server, default server address: [127.0.0.1: 4000]"))
 }
 
 func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {

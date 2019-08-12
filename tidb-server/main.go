@@ -138,7 +138,8 @@ var (
 
 	// Index Advisor
 	idxAdvisor = flagBoolean(nmIdxAdvisor, false, "if enable index advisor service.")
-	sql        = flag.String(nmSql, "", "Temp SQL Query")
+	sql        = flag.String(nmSql, "/tmp/test-queries", "input sql file for index advisor")
+	loginInfo  = flag.String(login, "mysql -h 127.0.0.1 -P 4000 -u root -D test", "login info required by running a mysql client")
 )
 
 var (
@@ -178,16 +179,19 @@ func main() {
 	}
 
 	if *idxAdvisor {
-		if *sql != "" {
-			fmt.Printf("*************************************************\n")
-			fmt.Printf("*         Runing Index Advisor Service          *\n")
-			fmt.Printf("*************************************************\n")
-			go idxadv.RunSqlClient(*sql)
+		if *sql != "" && *loginInfo != "" {
+			fmt.Printf("[Login Info]: %v\n[Query File]: %v\n", *loginInfo, *sql)
 		} else {
-			fmt.Printf("[Error] Missing sql conf file, but index server service is on!\n")
-			os.Exit(0)
+			fmt.Printf("[Using default login info]: mysql -h 127.0.0.1 -P 4000 -u root -D test\n")
+			fmt.Printf("[Using default query file path]: /tmp/queries")
 		}
+
+		fmt.Printf("*************************************************\n")
+		fmt.Printf("*         Runing Index Advisor Service          *\n")
+		fmt.Printf("*************************************************\n")
+		go idxadv.RunSqlClient(*sql, *loginInfo)
 	}
+
 	setupTracing() // Should before createServer and after setup config.
 	printInfo()
 	setupBinlogClient()

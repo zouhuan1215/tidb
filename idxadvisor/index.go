@@ -116,19 +116,19 @@ func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWith
 }
 
 func writeResultToFile(connID uint64, queryCnt uint64, origCost, vcost float64, indices []*model.IndexInfo) {
-	origCostPrefix := fmt.Sprintf("%v_OCOST", connID)
+	origCostPrefix := fmt.Sprintf("%v_OCOST", DBNAME)
 	origCostOut := fmt.Sprintf("%-10d%f\n", queryCnt, origCost)
 	writeToFile(origCostPrefix, origCostOut, true)
 
-	virtualCostPrefix := fmt.Sprintf("%v_OVCOST", connID)
+	virtualCostPrefix := fmt.Sprintf("%v_OVCOST", DBNAME)
 	virtualCostOut := fmt.Sprintf("%-10d%f\n", queryCnt, vcost)
 	writeToFile(virtualCostPrefix, virtualCostOut, true)
 
-	virtualIdxPrefix := fmt.Sprintf("%v_OINDEX", connID)
+	virtualIdxPrefix := fmt.Sprintf("%v_OINDEX", DBNAME)
 	virtualIdxOut := fmt.Sprintf("%-10d{%s}\n", queryCnt, buildIdxOutputInfo(indices))
 	writeToFile(virtualIdxPrefix, virtualIdxOut, true)
 
-	origSummaryPrefix := fmt.Sprintf("%v_ORIGIN", connID)
+	origSummaryPrefix := fmt.Sprintf("%v_ORIGIN", DBNAME)
 	origSummaryOut := fmt.Sprintf("%-10d%f%v%f%v{%v}\n", queryCnt, origCost, sepString, vcost, sepString, buildIdxOutputInfo(indices))
 	writeToFile(origSummaryPrefix, origSummaryOut, true)
 }
@@ -178,32 +178,5 @@ func WriteFinaleResult() {
 			content += fmt.Sprintf(")    %f\n", i.Benefit)
 		}
 		writeToFile(resFile, content, false)
-
-		//	res, _ := CreateTopNIndexSQL(resFile, TopN)
-		//	fmt.Println(res)
 	}
 }
-
-// CreateTopNIndexSQL generates the SQL statements for the first N virtual indices.
-//func CreateTopNIndexSQL(filename string, n int) (sql []string, err error) {
-//	fileName := fmt.Sprintf("%s/%s", outputPath, filename)
-//	lines, err := readFile(fileName)
-//	if err != nil {
-//		return nil, err
-//	}
-//
-//	if len(lines) < n {
-//		n = len(lines)
-//	}
-//
-//	for i := 0; i < n; i++ {
-//		res := strings.Fields(lines[i])
-//		if len(res) != 3 {
-//			panic("split error")
-//		}
-//		tbl := res[0][:len(res[0])-1]
-//		idx := res[1]
-//		sql = append(sql, fmt.Sprintf("create index virtual_index_%d on %s%s;", i+1, tbl, idx))
-//	}
-//	return
-//}
