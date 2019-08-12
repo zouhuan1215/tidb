@@ -15,7 +15,7 @@ import (
 const statusPort uint = 10080
 const user string = "root"
 const address string = "127.0.0.1:4000"
-const dbname string = "tpch"
+const dbname string = "test"
 
 const retryTime = 100
 
@@ -40,11 +40,8 @@ func getDSN(overriders ...configOverrider) string {
 	return config.FormatDSN()
 }
 
-// runSqlClient runs an index advisor client
+// RunSqlClient runs an index advisor client
 func RunSqlClient(sqlFile string) error {
-	fmt.Println("*******************************************")
-	fmt.Printf("RunSqlClient\n")
-	fmt.Println("*******************************************")
 	waitUntilServerOnline(statusPort)
 	var defMySQLConfig configOverrider
 	return runSqlClient(defMySQLConfig, sqlFile)
@@ -80,7 +77,6 @@ func waitUntilServerOnline(statusPort uint) {
 	if retry == retryTime {
 		fmt.Printf("failed to connect HTTP status in every 10 ms")
 	}
-
 }
 
 func runSqlClient(overrider configOverrider, sqlFile string) error {
@@ -100,5 +96,4 @@ func runSqlClient(overrider configOverrider, sqlFile string) error {
 
 	}
 	return nil
-
 }
