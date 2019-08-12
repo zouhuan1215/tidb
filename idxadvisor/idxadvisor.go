@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"reflect"
 	"strconv"
-	"strings"
 	"sync/atomic"
 
 	"github.com/pingcap/parser/ast"
@@ -231,16 +230,23 @@ func readQuery(sqlFile string, queryChan chan string) {
 		return
 	}
 
-	for i := 1; i <= 22; i++ {
+	files, err := ioutil.ReadDir(sqlFile)
+	if err != nil {
+		panic(err)
+	}
+
+	n := len(files)
+
+	for i := 1; i <= n; i++ {
 		sqlfile := sqlFile + strconv.Itoa(i) + ".sql"
 
 		contents, err := ioutil.ReadFile(sqlfile)
 		if err != nil {
 			panic(err)
 		}
-		sqlBegin := strings.Index(string(contents), "select")
-		query := contents[sqlBegin:]
-		queryChan <- string(query)
+		//	sqlBegin := strings.Index(string(contents), "select")
+		//	query := contents[sqlBegin:]
+		queryChan <- string(contents)
 	}
 }
 
