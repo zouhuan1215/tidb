@@ -1,9 +1,6 @@
 package idxadvisor
 
 import (
-	"strings"
-	"io"
-	"bufio"
 	"fmt"
 	"os"
 	"sort"
@@ -13,8 +10,9 @@ import (
 	plannercore "github.com/pingcap/tidb/planner/core"
 )
 
-const outputPath string = "/home/iggie"
-const sepString string  = "    "
+//TODO: outputPath should be passed in by flag
+const outputPath string = "/tmp/indexadvisor/"
+const sepString string = "    "
 const TopN = 3
 
 // IndicesWithCost includes in indices and their physical plan cost.
@@ -82,7 +80,7 @@ func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWith
 	for i, indice := range indices {
 		idxes[i] = indice.Index
 	}
-	WriteResultToFile(connID, ia.queryCnt, origCost, iwc.Cost, idxes)
+	writeResultToFile(connID, ia.queryCnt, origCost, iwc.Cost, idxes)
 
 	fmt.Printf("***Connection id %d, virtual physical plan's cost: %f, original cost: %f \n", connID, iwc.Cost, origCost)
 	benefit := origCost - iwc.Cost
@@ -136,7 +134,7 @@ func writeResultToFile(connID uint64, queryCnt uint64, origCost, vcost float64, 
 }
 
 func writeToFile(filename, content string, append bool) {
-	fileName := fmt.Sprintf("%s/%s", outputPath, filename)
+	fileName := fmt.Sprintf("%s%s", outputPath, filename)
 	fd, err := os.OpenFile(fileName, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
 	if !append {
 		fd, err = os.OpenFile(fileName, os.O_CREATE|os.O_RDWR, 0666)
@@ -147,28 +145,6 @@ func writeToFile(filename, content string, append bool) {
 	defer fd.Close()
 
 	fd.WriteString(content)
-}
-
-func readFile(filename string) (lines []string, err error) {
-	fp, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer fp.Close()
-
-	r := bufio.NewReader(fp)
-	for {
-		line, _, err := r.ReadLine()
-		if err != nil {
-			if err == io.EOF {
-				err = nil
-				break
-			}
-		} else {
-			lines = append(lines, string(line))
-		}
-	}
-	return
 }
 
 func buildIdxOutputInfo(indices []*model.IndexInfo) string {
@@ -202,32 +178,32 @@ func WriteFinaleResult() {
 			content += fmt.Sprintf(")    %f\n", i.Benefit)
 		}
 		writeToFile(resFile, content, false)
-		
-		res, _:= CreateTopNIndexSQL(resFile, TopN)
-		fmt.Println(res)
+
+		//	res, _ := CreateTopNIndexSQL(resFile, TopN)
+		//	fmt.Println(res)
 	}
 }
 
 // CreateTopNIndexSQL generates the SQL statements for the first N virtual indices.
-func CreateTopNIndexSQL(filename string, n int) (sql []string, err error) {
-	fileName := fmt.Sprintf("%s/%s", outputPath, filename)
-	lines, err := readFile(fileName)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(lines) < n {
-		n = len(lines)
-	}
-
-	for i := 0; i < n; i++ {
-		res := strings.Fields(lines[i])
-		if len(res) != 3 {
-			panic("split error")
-		}
-		tbl := res[0][:len(res[0])-1]
-		idx := res[1]
-		sql = append(sql, fmt.Sprintf("create index virtual_index_%d on %s%s;", i+1, tbl, idx))
-	}
-	return 
-}
+//func CreateTopNIndexSQL(filename string, n int) (sql []string, err error) {
+//	fileName := fmt.Sprintf("%s/%s", outputPath, filename)
+//	lines, err := readFile(fileName)
+//	if err != nil {
+//		return nil, err
+//	}
+//
+//	if len(lines) < n {
+//		n = len(lines)
+//	}
+//
+//	for i := 0; i < n; i++ {
+//		res := strings.Fields(lines[i])
+//		if len(res) != 3 {
+//			panic("split error")
+//		}
+//		tbl := res[0][:len(res[0])-1]
+//		idx := res[1]
+//		sql = append(sql, fmt.Sprintf("create index virtual_index_%d on %s%s;", i+1, tbl, idx))
+//	}
+//	return
+//}
