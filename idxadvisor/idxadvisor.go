@@ -97,7 +97,10 @@ func NewIdxAdv(db *sql.DB, sqlfile string, outputpath string) *IdxAdvisor {
 // This is only for test
 func MockNewIdxAdv(sqlfile string, outputpath string) *IdxAdvisor {
 	ia := &IdxAdvisor{sqlFile: sqlfile, outputPath: outputpath}
-	ia.handleTestFile()
+	err := ia.handleTestFile()
+	if err != nil {
+		logutil.BgLogger().Error("[test mode] -- handle test file error", zap.Error(err))
+	}
 	ia.ready.Store(false)
 	idxadvPool.push(ia)
 	return ia

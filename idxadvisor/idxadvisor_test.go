@@ -65,7 +65,7 @@ func (s *testAnalyzeSuite) loadTableStats(fileName string, dom *domain.Domain) e
 func (s *testAnalyzeSuite) TestSQLClient(c *C) {
 	s.startServer(c)
 
-	started := idxadv.RunIdxAdvisor("test-sqlclient", "10090", "/tmp/test-indexaDvisor", "root", "0.0.0.0:4001", "", "test")
+	started := idxadv.RunIdxAdvisor("test-sqlclient", "10090", "/tmp/test-indexadvisor", "root", "0.0.0.0:4001", "", "test")
 	c.Assert(started, Equals, true, Commentf("TestSQLClient requires a running TiDB server or mysql server"))
 	s.stopServer(c)
 }
@@ -146,18 +146,8 @@ func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
 			sql: []string{
 				"select count(*) from t group by e",
 				"select a, b from t1 where c in (1,3)",
-			},
-			res: "t: (e),t1: (c a b)",
-		},
-		{
-			sql: []string{
 				"select c, d, count(*) from t1 group by c, d",
 				"select * from t where b in (select c from t1 where c>0)",
-			},
-			res: "t: (e),t1: (c a b),t1: (c d),t1: (c),t: (b)",
-		},
-		{
-			sql: []string{
 				"select a from t1 order by b desc",
 				"select t.a from t join t1 on t.b = t1.b",
 			},
