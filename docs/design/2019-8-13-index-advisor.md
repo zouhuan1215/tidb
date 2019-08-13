@@ -79,7 +79,7 @@ Recommend Index Set和Remaning Index Set两者构成了Global Candidate Index Se
 
 为单条SQL Query生成推荐索引集的流程图如下。
 <div align="center">
-<img src="./imgs/Single Query Optimization.png" height=400 width=400>
+<img src="./imgs/single-query-optimization.png" height=400 width=400>
 </div>
 
 ### 为SQL Query集生成推荐索引集
