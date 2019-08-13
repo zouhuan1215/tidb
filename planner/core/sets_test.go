@@ -1,14 +1,12 @@
 package core_test
 
 import (
-	"github.com/pingcap/tidb/store/mockstore"
-	"github.com/pingcap/tidb/kv"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"path/filepath"
 	"testing"
+
+	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/store/mockstore"
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
@@ -17,44 +15,15 @@ import (
 	"github.com/pingcap/tidb/planner/core"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
-	"github.com/pingcap/tidb/statistics/handle"
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
 )
 
 var _ = Suite(&testAnalyzeSuite{})
 
-type testAnalyzeSuite struct {
-}
-
 func TestT(t *testing.T) {
 	CustomVerboseFlag = true
 	TestingT(t)
-}
-
-func (s *testAnalyzeSuite) loadTableStats(fileName string, dom *domain.Domain) error {
-	statsPath := filepath.Join("testdata", fileName)
-	bytes, err := ioutil.ReadFile(statsPath)
-
-	if err != nil {
-		return err
-	}
-
-	statsTbl := &handle.JSONTable{}
-	err = json.Unmarshal(bytes, statsTbl)
-
-	if err != nil {
-		return err
-	}
-
-	statsHandle := dom.StatsHandle()
-	err = statsHandle.LoadStatsFromJSON(dom.InfoSchema(), statsTbl)
-
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (s *testAnalyzeSuite) TestQueryExprInfo(c *C) {
@@ -130,4 +99,3 @@ func newStoreWithBootstrap() (kv.Storage, *domain.Domain, error) {
 	dom.SetStatsUpdating(true)
 	return store, dom, errors.Trace(err)
 }
-
