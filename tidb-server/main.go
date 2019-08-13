@@ -95,7 +95,6 @@ const (
 	nmProxyProtocolHeaderTimeout = "proxy-protocol-header-timeout"
 	nmAffinityCPU                = "affinity-cpus"
 	nmIdxAdvisor                 = "index-advisor"
-	nmSql                        = "sql"
 )
 
 var (

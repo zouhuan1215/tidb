@@ -79,7 +79,11 @@ func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWith
 	for i, indice := range indices {
 		idxes[i] = indice.Index
 	}
-	ia.writeResultToFile(ia.queryCnt, origCost, iwc.Cost, idxes)
+
+	err = ia.writeResultToFile(ia.queryCnt, origCost, iwc.Cost, idxes)
+	if err != nil {
+		return err
+	}
 
 	fmt.Printf("***Connection id %v, virtual physical plan's cost: %f, original cost: %f \n", dbname, iwc.Cost, origCost)
 	benefit := origCost - iwc.Cost
@@ -123,7 +127,7 @@ func GetRecommendIdxStr(dbname string) (string, error) {
 		return "", fmt.Errorf("bad attempt to get recommend index with no registered index advisor. connID: %v", dbname)
 	}
 
-	idxes := ia.Candidate_idx
+	idxes := ia.CanIdx
 	if len(idxes) == 0 {
 		return "", nil
 	}

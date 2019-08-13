@@ -58,9 +58,8 @@ func (s *testAnalyzeSuite) loadTableStats(fileName string, dom *domain.Domain) e
 
 func (s *testAnalyzeSuite) TestSQLClient(c *C) {
 	// TestSQLClient requires a running TiDB server or mysql server
-	loginInfo := "mysql -h 127.0.0.1 -P4000 -u root -D test"
-	err := idxadv.RunIdxAdvisor("test-mode", loginInfo, "10080", "/tmp/test-idxadvisor")
-	c.Assert(err, IsNil, Commentf("TestSQLClient requires a running TiDB server or mysql server, default server address: [127.0.0.1: 4000]"))
+	started := idxadv.RunIdxAdvisor("test-mode", "10080", "/tmp/test-indexadvisor", "root", "127.0.0.1:4000", "", "test")
+	c.Assert(started, Equals, true, Commentf("TestSQLClient requires a running TiDB server or mysql server, default server address: [127.0.0.1: 4000]"))
 }
 
 func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
@@ -69,7 +68,7 @@ func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
 	c.Assert(err, IsNil)
 
 	testkit := testkit.NewTestKit(c, store)
-	idxadvisor.MockNewIdxAdv("/tmp/test-queries", "/tmp/test-idxadvisor", "test")
+	idxadvisor.MockNewIdxAdv("/tmp/test-queries", "/tmp/test-idxadvisor")
 	defer func() {
 		dom.Close()
 		store.Close()

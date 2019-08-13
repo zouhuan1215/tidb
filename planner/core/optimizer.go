@@ -211,9 +211,17 @@ func physicalOptimize(logic LogicalPlan) (PhysicalPlan, error) {
 			if err != nil {
 				logutil.BgLogger().Error("In index advisor test mode, but cannot write cost to file", zap.Error(errors.New(fmt.Sprintf("file: /tmp/indexadvisor/%v, err: %v", outputFile, err))))
 			}
-			defer fd.Close()
+			defer func() {
+				err := fd.Close()
+				if err != nil {
+					logutil.BgLogger().Error("write to file error", zap.Error(err))
+				}
+			}()
 
-			fd.WriteString(outputInfo)
+			_, err = fd.WriteString(outputInfo)
+			if err != nil {
+				logutil.BgLogger().Error("write to file error", zap.Error(err))
+			}
 		}
 	}
 	return t.plan(), err
