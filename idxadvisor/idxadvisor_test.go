@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -110,7 +111,7 @@ func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
 	c.Assert(err, IsNil)
 
 	testkit := testkit.NewTestKit(c, store)
-	idxadvisor.MockNewIdxAdv("test-mock", "/tmp/test-idxadvisor")
+	idxadvisor.MockNewIdxAdv("test-mock", "")
 	defer func() {
 		dom.Close()
 		store.Close()
@@ -150,8 +151,9 @@ func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
 				"select * from t where b in (select c from t1 where c>0)",
 				"select a from t1 order by b desc",
 				"select t.a from t join t1 on t.b = t1.b",
+				"select b, c, d, count(*) from t1 group by b, c, d",
 			},
-			res: "t: (e),t1: (c a b),t1: (c d),t1: (c),t: (b),t1: (b a),t1: (b)",
+			res: "t: (b),t1: (c),t1: (b),t: (e),t1: (b a),t1: (c d),t1: (c a b)",
 		},
 	}
 
@@ -164,6 +166,14 @@ func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
 		c.Assert(err, IsNil)
 		c.Assert(res, Equals, tt.res, Commentf("for %v", tt.sql))
 	}
+	err = os.Remove("test_OCOST")
+	c.Assert(err, IsNil)
+	err = os.Remove("test_OINDEX")
+	c.Assert(err, IsNil)
+	err = os.Remove("test_ORIGIN")
+	c.Assert(err, IsNil)
+	err = os.Remove("test_OVCOST")
+	c.Assert(err, IsNil)
 }
 
 func newStoreWithBootstrap() (kv.Storage, *domain.Domain, error) {

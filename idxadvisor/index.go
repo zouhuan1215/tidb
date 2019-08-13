@@ -2,6 +2,7 @@ package idxadvisor
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/infoschema"
@@ -127,6 +128,7 @@ func GetRecommendIdxStr(dbname string) (string, error) {
 		return "", fmt.Errorf("bad attempt to get recommend index with no registered index advisor. connID: %v", dbname)
 	}
 
+	sort.Sort(ia.CanIdx)
 	idxes := ia.CanIdx
 	if len(idxes) == 0 {
 		return "", nil

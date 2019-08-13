@@ -124,12 +124,10 @@ func GetIdxAdv(dbname string) (*IdxAdvisor, error) {
 // Init set session variable tidb_enable_index_advisor = true
 func (ia *IdxAdvisor) Init() error {
 	ia.queryChan = make(chan string, queryChanSize)
-	err := ia.checkFilePath()
-	if err != nil {
+	if err := ia.checkFilePath(); err != nil {
 		return err
 	}
-	_, err = ia.dbClient.Exec("SET tidb_enable_index_advisor = 1")
-	if err != nil {
+	if _, err := ia.dbClient.Exec("SET tidb_enable_index_advisor = 1"); err != nil {
 		return err
 	}
 
@@ -141,24 +139,21 @@ func (ia *IdxAdvisor) Init() error {
 // if sql file path doesn't exist, return error
 // if output file path doesn't exist, create one
 func (ia *IdxAdvisor) checkFilePath() error {
-	if strings.HasPrefix(ia.sqlFile, "test") {
-		return ia.handleTestFile()
-	}
 	if exist, err := existPath(ia.sqlFile); !exist {
+		if strings.HasPrefix(ia.sqlFile, "test") {
+			return ia.handleTestFile()
+		}
 		if err == nil {
 			return errors.New("input sql file dosen't exist")
 		}
 		return err
 	}
 
-	if exist, err := existPath(ia.outputPath); !exist {
-		if err == nil {
-			err = os.Mkdir(ia.outputPath, 777)
-			if err == nil {
-				return nil
-			}
-			return err
+	if exist, err := existPath(ia.outputPath); !exist && err == nil {
+		if err = os.Mkdir(ia.outputPath, 777); err == nil {
+			return nil
 		}
+		return err
 	}
 
 	return nil
@@ -527,7 +522,11 @@ func readQuery(sqlPath string, queryChan chan string) {
 		sqlfile := strconv.Itoa(i) + ".sql"
 		fileName := path.Join(sqlPath, sqlfile)
 
-		if existFile(fileName) {
+		exist, err := existPath(fileName)
+		if err != nil {
+			logutil.BgLogger().Error("index advisor readQuery error", zap.Error(err))
+		}
+		if exist {
 			contents, err := ioutil.ReadFile(fileName)
 			if err != nil {
 				logutil.BgLogger().Error("index advisor readQuery error", zap.Error(err))
@@ -535,17 +534,6 @@ func readQuery(sqlPath string, queryChan chan string) {
 			queryChan <- string(contents)
 		}
 	}
-}
-
-func existFile(file string) bool {
-	_, err := os.Stat(file)
-	if err != nil {
-		if os.IsExist(err) {
-			return true
-		}
-		return false
-	}
-	return true
 }
 
 func existPath(path string) (bool, error) {
