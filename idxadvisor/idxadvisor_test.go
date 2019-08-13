@@ -95,7 +95,7 @@ func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
 	sessionVars := ctx.GetSessionVars()
 	sessionVars.HashAggFinalConcurrency = 1
 	sessionVars.HashAggPartialConcurrency = 1
-	connID := sessionVars.ConnectionID
+	dbName := sessionVars.CurrentDB
 
 	tests := []struct {
 		sql []string
@@ -119,7 +119,7 @@ func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
 		for _, sql := range tt.sql {
 			testkit.Exec(sql)
 		}
-		res, err := idxadvisor.GetRecommendIdxStr(connID)
+		res, err := idxadvisor.GetRecommendIdxStr(dbName)
 		c.Assert(err, IsNil)
 		c.Assert(res, Equals, tt.res, Commentf("for %v", tt.sql))
 	}

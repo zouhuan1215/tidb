@@ -5,8 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"os"
+	"path"
 	"reflect"
+	"sort"
 	"strconv"
+	"strings"
 	"sync/atomic"
 
 	"github.com/pingcap/parser/ast"
@@ -15,6 +19,7 @@ import (
 	"github.com/pingcap/tidb/infoschema"
 	plannercore "github.com/pingcap/tidb/planner/core"
 	"github.com/pingcap/tidb/util/logutil"
+	"go.uber.org/zap"
 )
 
 type idxAdvPool []*IdxAdvisor
@@ -96,16 +101,17 @@ func MockNewIdxAdv(sqlfile string, outputpath string) *IdxAdvisor {
 }
 
 // GetIdxAdv returns a IdxAdvisor according to connID.
-func GetIdxAdv(dbname string) *IdxAdvisor {
+func GetIdxAdv(dbname string) (*IdxAdvisor, error) {
 	if ia, ok := registeredIdxAdv[dbname]; ok {
-		return ia
+		return ia, nil
 	}
 
 	if ia, err := idxadvPool.pop(); err != nil {
-		panic(err)
+		return nil, errors.New("no index advisor session is detected")
 	} else {
 		registeredIdxAdv[dbname] = ia
-		return ia
+		ia.dbName = dbname
+		return ia, nil
 	}
 }
 
@@ -153,11 +159,91 @@ func (ia *IdxAdvisor) StartTask() error {
 	}
 }
 
-func (ia *IdxAdvisor) writeFinalResult() {
+// writeFinalResult saves virtual indices and their benefit to outputPath
+func (ia *IdxAdvisor) writeFinalResult() error {
+	for dbname, v := range registeredIdxAdv {
+		sort.Sort(v.Candidate_idx)
+		resFile := path.Join(ia.outputPath, fmt.Sprintf("%v_RESULT", strings.ToUpper(dbname)))
+		content := ""
+		for _, i := range v.Candidate_idx {
+			content += fmt.Sprintf("%s: (", i.Index.Index.Table.L)
+			for _, col := range i.Index.Index.Columns {
+				content += fmt.Sprintf("%s,", col.Name.L)
+			}
+			content = content[:len(content)-1]
+			content += fmt.Sprintf(")    %f\n", i.Benefit)
+		}
+		return writeToFile(resFile, content, false)
+	}
 
+	return nil
 }
 
-func GetVirtualInfoschema(is infoschema.InfoSchema, dbName string, tableInfoSets map[string]*plannercore.TableInfoSets) infoschema.InfoSchema {
+func (ia *IdxAdvisor) writeResultToFile(queryCnt uint64, origCost, vcost float64, indices []*model.IndexInfo) error {
+	origCostPrefix := fmt.Sprintf("%v_OCOST", ia.dbName)
+	origFile := path.Join(ia.outputPath, origCostPrefix)
+	origCostOut := fmt.Sprintf("%-10d%f\n", queryCnt, origCost)
+	if err := writeToFile(origFile, origCostOut, true); err != nil {
+		return err
+	}
+
+	virtualCostPrefix := fmt.Sprintf("%v_OVCOST", ia.dbName)
+	vcostFile := path.Join(ia.outputPath, virtualCostPrefix)
+	virtualCostOut := fmt.Sprintf("%-10d%f\n", queryCnt, vcost)
+	if err := writeToFile(vcostFile, virtualCostOut, true); err != nil {
+		return err
+	}
+
+	virtualIdxPrefix := fmt.Sprintf("%v_OINDEX", ia.dbName)
+	vIdxFile := path.Join(ia.outputPath, virtualIdxPrefix)
+	virtualIdxOut := fmt.Sprintf("%-10d{%s}\n", queryCnt, buildIdxOutputInfo(indices))
+	if err := writeToFile(vIdxFile, virtualIdxOut, true); err != nil {
+		return err
+	}
+
+	origSummaryPrefix := fmt.Sprintf("%v_ORIGIN", ia.dbName)
+	origSummFile := path.Join(ia.outputPath, origSummaryPrefix)
+	origSummaryOut := fmt.Sprintf("%-10d%f%v%f%v{%v}\n", queryCnt, origCost, sepString, vcost, sepString, buildIdxOutputInfo(indices))
+	if err := writeToFile(origSummFile, origSummaryOut, true); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func writeToFile(fileName, content string, append bool) error {
+	fd, err := os.OpenFile(fileName, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
+	if !append {
+		fd, err = os.OpenFile(fileName, os.O_CREATE|os.O_RDWR, 0666)
+	}
+	if err != nil {
+		return err
+	}
+	defer fd.Close()
+
+	fd.WriteString(content)
+
+	return nil
+}
+
+func buildIdxOutputInfo(indices []*model.IndexInfo) string {
+	var vIdxesInfo string
+	if len(indices) == 0 {
+		return ""
+	}
+	for _, idx := range indices {
+		var singleIdx string = "("
+		for _, col := range idx.Columns {
+			singleIdx = fmt.Sprintf("%s%s ", singleIdx, col.Name.L)
+		}
+		singleIdx = fmt.Sprintf("%v) ", singleIdx[:len(singleIdx)-1])
+		vIdxesInfo = fmt.Sprintf("%s%s", vIdxesInfo, singleIdx)
+	}
+	return vIdxesInfo
+}
+
+// GetVirtualInfoschema returns a modified copy of passed-in infoschema
+func GetVirtualInfoschema(is infoschema.InfoSchema, dbName string, tableInfoSets map[string]*plannercore.TableInfoSets) (infoschema.InfoSchema, error) {
 	// Get a copy of InfoSchema
 	dbInfos := is.Clone()
 	ISCopy := infoschema.MockInfoSchemaWithDBInfos(dbInfos, is.SchemaMetaVersion())
@@ -167,23 +253,29 @@ func GetVirtualInfoschema(is infoschema.InfoSchema, dbName string, tableInfoSets
 		tblname := model.NewCIStr(tblname)
 		tblCopy, err := ISCopy.TableByName(dbname, tblname)
 		if err != nil {
-			panic(err)
+			logutil.BgLogger().Error("Get virtual infoschema error", zap.Error(err))
+			return nil, err
 		}
 		tblInfoCopy := tblCopy.Meta()
 		idxInfo := tblCopy.Meta().Indices
 
 		// add virtual indexes to InfoSchemaCopy.TblInfo
-		virtualIndexes := buildVirtualIndexes(tblInfoCopy, dbname, tblname, tblInfoSets)
+		virtualIndexes, err := buildVirtualIndexes(tblInfoCopy, dbname, tblname, tblInfoSets)
+		if err != nil {
+			logutil.BgLogger().Error("build virtual indexes error", zap.Error(err))
+			return nil, err
+		}
+
 		for _, virtualIndex := range virtualIndexes {
 			if !isExistedInTable(virtualIndex, idxInfo) {
 				tblInfoCopy.Indices = append(tblInfoCopy.Indices, virtualIndex)
 			}
 		}
 	}
-	return ISCopy
+	return ISCopy, nil
 }
 
-func buildVirtualIndexes(tblInfo *model.TableInfo, dbname, tblname model.CIStr, tblInfoSets *plannercore.TableInfoSets) []*model.IndexInfo {
+func buildVirtualIndexes(tblInfo *model.TableInfo, dbname, tblname model.CIStr, tblInfoSets *plannercore.TableInfoSets) ([]*model.IndexInfo, error) {
 	indexes := genVirtualIndexCols(tblInfo, dbname, tblname, tblInfoSets)
 	result := make([]*model.IndexInfo, 0)
 	for i, idxColNames := range indexes {
@@ -196,11 +288,11 @@ func buildVirtualIndexes(tblInfo *model.TableInfo, dbname, tblname model.CIStr, 
 				idxColNameStr = fmt.Sprintf("%v  %v", idxColNameStr, idxCol)
 			}
 			fmt.Printf("++++++++++++++++++idxColNames: %v, indexName: %v++++++++++++++++++++++\n", idxColNames, idxColNameStr)
-			panic(err)
+			return nil, err
 		}
 		result = append(result, indexinfo)
 	}
-	return result
+	return result, nil
 }
 
 func genVirtualIndexCols(tblInfo *model.TableInfo, dbname, tblname model.CIStr, tblInfoSets *plannercore.TableInfoSets) [][]*ast.IndexColName {
@@ -359,7 +451,7 @@ func readQuery(sqlFile string, queryChan chan string) {
 
 	files, err := ioutil.ReadDir(sqlFile)
 	if err != nil {
-		panic(err)
+		logutil.BgLogger().Error(fmt.Sprintf("read query gets error when read directory: %v", sqlFile), zap.Error(err))
 	}
 
 	n := len(files)
@@ -369,7 +461,7 @@ func readQuery(sqlFile string, queryChan chan string) {
 
 		contents, err := ioutil.ReadFile(sqlfile)
 		if err != nil {
-			panic(err)
+			logutil.BgLogger().Error("index advisor readQuery error", zap.Error(err))
 		}
 		queryChan <- string(contents)
 	}

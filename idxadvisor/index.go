@@ -2,17 +2,13 @@ package idxadvisor
 
 import (
 	"fmt"
-	"os"
-	"path"
-	"sort"
-
-	"strings"
 
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/infoschema"
 	plannercore "github.com/pingcap/tidb/planner/core"
 )
 
+// sepString is used to format result
 const sepString string = "    "
 
 // IndicesWithCost includes in indices and their physical plan cost.
@@ -70,9 +66,12 @@ func travelPhysicalPlan(plan plannercore.PhysicalPlan, indices *[]*IdxAndTblInfo
 	}
 }
 
-// SaveVirtualIndices saves virtual indices to  and their benefit.
-func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWithCost, origCost float64) {
-	ia := GetIdxAdv(dbname)
+// SaveVirtualIndices saves virtual indices and their benefit.
+func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWithCost, origCost float64) error {
+	ia, err := GetIdxAdv(dbname)
+	if err != nil {
+		return err
+	}
 	indices := iwc.Indices
 	ia.queryCnt++
 
@@ -82,18 +81,18 @@ func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWith
 	}
 	ia.writeResultToFile(ia.queryCnt, origCost, iwc.Cost, idxes)
 
-	fmt.Printf("***Connection id %d, virtual physical plan's cost: %f, original cost: %f \n", connID, iwc.Cost, origCost)
+	fmt.Printf("***Connection id %v, virtual physical plan's cost: %f, original cost: %f \n", dbname, iwc.Cost, origCost)
 	benefit := origCost - iwc.Cost
 	if benefit/origCost < Deviation {
 		fmt.Println("needn't create index")
-		return
+		return nil
 	}
 
 	fmt.Printf("***Index:")
 	for _, idx := range indices {
 		table, err := is.TableByName(model.NewCIStr(dbname), idx.Table.Name)
 		if err != nil {
-			panic(err)
+			return err
 		}
 
 		if isExistedInTable(idx.Index, table.Meta().Indices) {
@@ -113,24 +112,8 @@ func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWith
 		}
 		fmt.Printf("\b)\n")
 	}
-}
 
-// writeFinalResult saves virtual indices and their benefit to outputPath
-func writeFinalResult(outputPath string) {
-	for dbname, v := range registeredIdxAdv {
-		sort.Sort(v.Candidate_idx)
-		resFile := path.Join(outputPath, fmt.Sprintf("%v_RESULT", strings.ToUpper(dbname)))
-		content := ""
-		for _, i := range v.Candidate_idx {
-			content += fmt.Sprintf("%s: (", i.Index.Index.Table.L)
-			for _, col := range i.Index.Index.Columns {
-				content += fmt.Sprintf("%s,", col.Name.L)
-			}
-			content = content[:len(content)-1]
-			content += fmt.Sprintf(")    %f\n", i.Benefit)
-		}
-		writeToFile(resFile, content, false)
-	}
+	return nil
 }
 
 // GetRecommendIdxStr return recommended index in string format.
@@ -178,51 +161,3 @@ func GetRecommendIdxStr(dbname string) (string, error) {
 //	}
 //	return vIdxesInfo
 //}
-
-func (ia *IdxAdvisor) writeResultToFile(queryCnt uint64, origCost, vcost float64, indices []*model.IndexInfo) {
-	origCostPrefix := fmt.Sprintf("%v_OCOST", ia.dbName)
-	origFile := path.Join(ia.outputPath, origCostPrefix)
-	origCostOut := fmt.Sprintf("%-10d%f\n", queryCnt, origCost)
-	writeToFile(origFile, origCostOut, true)
-
-	virtualCostPrefix := fmt.Sprintf("%v_OVCOST")
-	virtualCostOut := fmt.Sprintf("%-10d%f\n", queryCnt, vcost)
-	writeToFile(virtualCostPrefix, virtualCostOut, true)
-
-	virtualIdxPrefix := fmt.Sprintf("%v_OINDEX", DBNAME)
-	virtualIdxOut := fmt.Sprintf("%-10d{%s}\n", queryCnt, buildIdxOutputInfo(indices))
-	writeToFile(virtualIdxPrefix, virtualIdxOut, true)
-
-	origSummaryPrefix := fmt.Sprintf("%v_ORIGIN", DBNAME)
-	origSummaryOut := fmt.Sprintf("%-10d%f%v%f%v{%v}\n", queryCnt, origCost, sepString, vcost, sepString, buildIdxOutputInfo(indices))
-	writeToFile(origSummaryPrefix, origSummaryOut, true)
-}
-
-func writeToFile(filename, content string, append bool) {
-	fd, err := os.OpenFile(fileName, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
-	if !append {
-		fd, err = os.OpenFile(fileName, os.O_CREATE|os.O_RDWR, 0666)
-	}
-	if err != nil {
-		panic(err)
-	}
-	defer fd.Close()
-
-	fd.WriteString(content)
-}
-
-func buildIdxOutputInfo(indices []*model.IndexInfo) string {
-	var vIdxesInfo string
-	if len(indices) == 0 {
-		return ""
-	}
-	for _, idx := range indices {
-		var singleIdx string = "("
-		for _, col := range idx.Columns {
-			singleIdx = fmt.Sprintf("%s%s ", singleIdx, col.Name.L)
-		}
-		singleIdx = fmt.Sprintf("%v) ", singleIdx[:len(singleIdx)-1])
-		vIdxesInfo = fmt.Sprintf("%s%s", vIdxesInfo, singleIdx)
-	}
-	return vIdxesInfo
-}

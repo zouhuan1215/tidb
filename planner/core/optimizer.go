@@ -29,8 +29,10 @@ import (
 	"github.com/pingcap/tidb/planner/property"
 	"github.com/pingcap/tidb/privilege"
 	"github.com/pingcap/tidb/sessionctx"
+	"github.com/pingcap/tidb/util/logutil"
 	"github.com/pingcap/tidb/util/set"
 	"go.uber.org/atomic"
+	"go.uber.org/zap"
 )
 
 // OptimizeAstNode optimizes the query to a physical plan directly.
@@ -185,6 +187,7 @@ func physicalOptimize(logic LogicalPlan) (PhysicalPlan, error) {
 
 	sessionVars := logic.SCtx().GetSessionVars()
 	if sessionVars.EnableIndexAdvisor {
+		// only return the root plan as task, ignore sub-plans
 		if _, ok := logic.(*LogicalMaxOneRow); !ok {
 			switch vt := t.(type) {
 			case *rootTask:
@@ -193,20 +196,20 @@ func physicalOptimize(logic LogicalPlan) (PhysicalPlan, error) {
 				return vt, nil
 			default:
 				return nil, errors.New("GetRootTaskCost: Plan interface is not implemented by rootTask")
-
 			}
 
 		}
 	}
 
+	// session variable is set only to write task's cost to file in normal mode
 	if sessionVars.EnableIndexAdvisorTest {
 		if _, ok := logic.(*LogicalMaxOneRow); !ok {
 			queryCounter++
 			outputInfo := fmt.Sprintf("%-10d%f\n", queryCounter, t.cost())
-			outputFile := fmt.Sprintf("/tmp/indexadvisor/%v_TCOST", sessionVars.ConnectionID)
+			outputFile := fmt.Sprintf("/tmp/indexadvisor/%v_TCOST", sessionVars.CurrentDB)
 			fd, err := os.OpenFile(outputFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
 			if err != nil {
-				panic(err)
+				logutil.BgLogger().Error("In index advisor test mode, but cannot write cost to file", zap.Error(errors.New(fmt.Sprintf("file: /tmp/indexadvisor/%v, err: %v", outputFile, err))))
 			}
 			defer fd.Close()
 

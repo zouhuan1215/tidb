@@ -15,7 +15,6 @@ package executor
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/opentracing/opentracing-go"
@@ -88,7 +87,7 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 		// Get final physical plan.
 		p, err := plannercore.GetPhysicalPlan(finalPlan)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 
 		queryInfo := plannercore.NewQueryExprInfo(p)
@@ -97,38 +96,41 @@ func (c *Compiler) compile(ctx context.Context, stmtNode ast.StmtNode, skipBind 
 		// Get final plan cost.
 		cost, err := plannercore.GetTaskCost(finalPlan)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 
 		// Construct virtual infoschema
 		dbname := c.Ctx.GetSessionVars().CurrentDB
-
-		conn := c.Ctx.GetSessionVars().ConnectionID
-		virtualIS := idxadvisor.GetVirtualInfoschema(infoSchema, dbname, m)
+		virtualIS, err := idxadvisor.GetVirtualInfoschema(infoSchema, dbname, m)
+		if err != nil {
+			return nil, err
+		}
 
 		// Get virtual final plan.
 		vFinalPlan, err := planner.Optimize(ctx, c.Ctx, stmtNode, virtualIS)
 		if err != nil {
-			fmt.Printf("planner.Optimize with vInfoSchema error: %v\n", err)
-			panic(err)
+			return nil, err
 		}
 
 		// Get virtual final plan cost.
 		vcost, err := plannercore.GetTaskCost(vFinalPlan)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 
 		// Get virtual final physical plan.
 		vPhysicalPlan, err := plannercore.GetPhysicalPlan(vFinalPlan)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 
 		// Get virtual indices with cost.
 		selectedIndices := idxadvisor.FindVirtualIndices(vPhysicalPlan)
 		iwc := idxadvisor.IndicesWithCost{Indices: selectedIndices, Cost: vcost}
-		idxadvisor.SaveVirtualIndices(infoSchema, dbname, iwc, conn, cost)
+		err = idxadvisor.SaveVirtualIndices(infoSchema, dbname, iwc, cost)
+		if err != nil {
+			return nil, err
+		}
 
 		finalPlan = nil
 	}
