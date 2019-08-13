@@ -95,7 +95,6 @@ const (
 	nmProxyProtocolHeaderTimeout = "proxy-protocol-header-timeout"
 	nmAffinityCPU                = "affinity-cpus"
 	nmIdxAdvisor                 = "index-advisor"
-	nmSql                        = "sql"
 )
 
 var (
@@ -138,7 +137,12 @@ var (
 
 	// Index Advisor
 	idxAdvisor = flagBoolean(nmIdxAdvisor, false, "if enable index advisor service.")
-	sql        = flag.String(nmSql, "", "Temp SQL Query")
+	sql        = flag.String("sql", "/tmp/test-queries", "input sql file for index advisor")
+	res        = flag.String("res", "/tmp/test-indexadvisor", "result file path of index advisor")
+	user       = flag.String("u", "root", "mysql client login info -- user, required by running index advisor")
+	addr       = flag.String("addr", "127.0.0.1:4000", "mysql client login info -- server address, required by running index advisor")
+	pwd        = flag.String("pwd", "", "mysql client login info -- user passsword, required by running index advisor")
+	dbname     = flag.String("db", "test", "mysql client login info -- DB name, required by running index advisor")
 )
 
 var (
@@ -178,16 +182,9 @@ func main() {
 	}
 
 	if *idxAdvisor {
-		if *sql != "" {
-			fmt.Printf("*************************************************\n")
-			fmt.Printf("*         Runing Index Advisor Service          *\n")
-			fmt.Printf("*************************************************\n")
-			go idxadv.RunSqlClient(*sql)
-		} else {
-			fmt.Printf("[Error] Missing sql conf file, but index server service is on!\n")
-			os.Exit(0)
-		}
+		go idxadv.RunIdxAdvisor(*sql, *statusPort, *res, *user, *addr, *pwd, *dbname)
 	}
+
 	setupTracing() // Should before createServer and after setup config.
 	printInfo()
 	setupBinlogClient()

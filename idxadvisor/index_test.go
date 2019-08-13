@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pingcap/parser/model"
 	. "github.com/pingcap/check"
+	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/idxadvisor"
 	"github.com/pingcap/tidb/planner"
@@ -53,20 +53,20 @@ func (s *testAnalyzeSuite) TestFindIndices(c *C) {
 	}
 	testKit.MustExec("analyze table t1")
 	tests := []struct {
-		sql  	string
-		index	map[string]model.CIStr
+		sql   string
+		index map[string]model.CIStr
 	}{
 		{
-			sql:  "select count(*) from t group by b",
-			index: map[string]model.CIStr{"t":model.NewCIStr("b")},
+			sql:   "select count(*) from t group by b",
+			index: map[string]model.CIStr{"t": model.NewCIStr("b")},
 		},
 		{
-			sql:  "select c from t order by b",
-			index: map[string]model.CIStr{"t":model.NewCIStr("b_c")},
+			sql:   "select c from t order by b",
+			index: map[string]model.CIStr{"t": model.NewCIStr("b_c")},
 		},
 		{
-			sql:  "select * from t, t1 where t.b = 1 and t1.a = 1",
-			index: map[string]model.CIStr{"t":model.NewCIStr("b"), "t1":model.NewCIStr("idx")},
+			sql:   "select * from t, t1 where t.b = 1 and t1.a = 1",
+			index: map[string]model.CIStr{"t": model.NewCIStr("b"), "t1": model.NewCIStr("idx")},
 		},
 	}
 	testKit.MustExec("set tidb_enable_index_advisor=1")

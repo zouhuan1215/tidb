@@ -42,28 +42,28 @@ func (s *testAnalyzeSuite) TestTableInfoSets(c *C) {
 	sessionVars.HashAggFinalConcurrency = 1
 	sessionVars.HashAggPartialConcurrency = 1
 	tests := []struct {
-		sql  	string
-		num	 	int
-		eq      map[string]string
-		o       map[string]string
-		rg      map[string]string
-		ref     map[string]string
+		sql string
+		num int
+		eq  map[string]string
+		o   map[string]string
+		rg  map[string]string
+		ref map[string]string
 	}{
 		{
-			sql:  "select t1.c,count(t1.a) from t t1 inner join t t2 on t1.c=t2.b where t1.b<t2.c group by t1.c,t2.c",
-			num:  1,
-			eq:	  map[string]string{"t":"[]"},
-			o:	  map[string]string{"t":"[[c],[b],[a]]"},
-			rg:	  map[string]string{"t":"[b,c]"},
-			ref:  map[string]string{"t":"[c]"},
+			sql: "select t1.c,count(t1.a) from t t1 inner join t t2 on t1.c=t2.b where t1.b<t2.c group by t1.c,t2.c",
+			num: 1,
+			eq:  map[string]string{"t": "[]"},
+			o:   map[string]string{"t": "[[c],[b],[a]]"},
+			rg:  map[string]string{"t": "[b,c]"},
+			ref: map[string]string{"t": "[c]"},
 		},
 		{
-			sql:  "select t.c,count(t.a) from t inner join t1 on t.c=t1.b where t.a=1 or t1.a=2 and t.b<t1.c group by t.c,t1.c",
-			num:  2,
-			eq:	  map[string]string{"t":"[a]", "t1":"[a]"},
-			o:	  map[string]string{"t":"[[c],[a]]", "t1":"[[b],[c]]"},
-			rg:	  map[string]string{"t":"[b]", "t1":"[c]"},
-			ref:  map[string]string{"t":"[c]", "t1":"[]"},
+			sql: "select t.c,count(t.a) from t inner join t1 on t.c=t1.b where t.a=1 or t1.a=2 and t.b<t1.c group by t.c,t1.c",
+			num: 2,
+			eq:  map[string]string{"t": "[a]", "t1": "[a]"},
+			o:   map[string]string{"t": "[[c],[a]]", "t1": "[[b],[c]]"},
+			rg:  map[string]string{"t": "[b]", "t1": "[c]"},
+			ref: map[string]string{"t": "[c]", "t1": "[]"},
 		},
 	}
 	testKit.MustExec("set tidb_enable_index_advisor=1")

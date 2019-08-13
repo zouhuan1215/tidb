@@ -172,6 +172,7 @@ func getIndexColumnLength(col *model.ColumnInfo, colLen int) (int, error) {
 	return length, nil
 }
 
+// BuildIndexInfo build *model.IndexInfo from []*ast.IndexColName
 func BuildIndexInfo(tblInfo *model.TableInfo, indexName model.CIStr, idxColNames []*ast.IndexColName, state model.SchemaState) (*model.IndexInfo, error) {
 	idxColumns, err := buildIndexColumns(tblInfo.Columns, idxColNames)
 	if err != nil {

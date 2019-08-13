@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"os"
+	"path"
 	"reflect"
+	"sort"
 	"strconv"
 	"sync/atomic"
 
@@ -14,15 +17,19 @@ import (
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/infoschema"
 	plannercore "github.com/pingcap/tidb/planner/core"
+	"github.com/pingcap/tidb/util/logutil"
+	"go.uber.org/zap"
 )
 
 type idxAdvPool []*IdxAdvisor
 
 const queryChanSize int = 10000
 
-var registeredIdxAdv = make(map[uint64]*IdxAdvisor)
-
+// idxadvPool stores *IdxAdvisor which has an initialized sql client
 var idxadvPool idxAdvPool = make(idxAdvPool, 0)
+
+// registeredIdxAdv maps dbName to *IdxAdvisor
+var registeredIdxAdv = make(map[string]*IdxAdvisor)
 
 func (iap *idxAdvPool) push(ia *IdxAdvisor) {
 	*iap = append(*iap, ia)
@@ -30,7 +37,7 @@ func (iap *idxAdvPool) push(ia *IdxAdvisor) {
 
 func (iap *idxAdvPool) pop() (*IdxAdvisor, error) {
 	if iap.empty() {
-		return nil, errors.New("idxAdvPool is empty!")
+		return nil, errors.New("idxAdvPool is empty")
 	}
 	ia := (*iap)[len(*iap)-1]
 	(*iap) = (*iap)[:len(*iap)-1]
@@ -41,16 +48,29 @@ func (iap *idxAdvPool) empty() bool {
 	return len(*iap) == 0
 }
 
+// IdxAdvisor is an instance of index advisor service
+// One instance per session
 type IdxAdvisor struct {
-	dbClient  *sql.DB
-	queryChan chan string // queryChan transfer query read from file
-	queryCnt  uint64      // record how many queries have been evaluated in current session
+	// dbClient is a mysql client which send queries to tidb server
+	dbClient *sql.DB
+	// dbName is the database needed to be evaluated
+	dbName string
+	// queryChan transfer query read from file
+	queryChan chan string
+	// queryCnt record how many queries have been evaluated in current session
+	queryCnt uint64
+	// ready indicate if session variable 'tidb_enable_index_advisor' has been set
+	ready atomic.Value
+	// CandidateIdxes stores the final recommend indexes and their benefits
+	CanIdx CandidateIdxes
 
-	ready         atomic.Value
-	Candidate_idx CandidateIdxes
+	// sqlFile is the file that contains queries needed being evaluated
+	sqlFile string
+	// outputPath is the file path that contains result of index advisor
+	outputPath string
 }
 
-// CandidateIdx includes in index and its benefit.
+// CandidateIdx includes in index and its benefit
 type CandidateIdx struct {
 	Index   *IdxAndTblInfo
 	Benefit float64
@@ -59,15 +79,13 @@ type CandidateIdx struct {
 // CandidateIdxes implements sort.Sort() interface
 type CandidateIdxes []*CandidateIdx
 
-func (ci CandidateIdxes) Len() int { return len(ci) }
-
+func (ci CandidateIdxes) Len() int           { return len(ci) }
 func (ci CandidateIdxes) Less(i, j int) bool { return ci[i].Benefit > ci[j].Benefit }
-
-func (ci CandidateIdxes) Swap(i, j int) { ci[i], ci[j] = ci[j], ci[i] }
+func (ci CandidateIdxes) Swap(i, j int)      { ci[i], ci[j] = ci[j], ci[i] }
 
 // NewIdxAdv create a new IdxAdvisor.
-func NewIdxAdv(db *sql.DB) *IdxAdvisor {
-	ia := &IdxAdvisor{dbClient: db}
+func NewIdxAdv(db *sql.DB, sqlfile string, outputpath string) *IdxAdvisor {
+	ia := &IdxAdvisor{dbClient: db, sqlFile: sqlfile, outputPath: outputpath}
 	ia.ready.Store(false)
 
 	idxadvPool.push(ia)
@@ -75,70 +93,196 @@ func NewIdxAdv(db *sql.DB) *IdxAdvisor {
 }
 
 // MockNewIdxAdv return *IdxAdvisor without initiating dbClient member
-func MockNewIdxAdv() *IdxAdvisor {
-	ia := &IdxAdvisor{}
+// This is only for test
+func MockNewIdxAdv(sqlfile string, outputpath string) *IdxAdvisor {
+	ia := &IdxAdvisor{sqlFile: sqlfile, outputPath: outputpath}
 	ia.ready.Store(false)
 	idxadvPool.push(ia)
 	return ia
 }
 
 // GetIdxAdv returns a IdxAdvisor according to connID.
-func GetIdxAdv(connID uint64) *IdxAdvisor {
-	if ia, ok := registeredIdxAdv[connID]; ok {
-		return ia
+func GetIdxAdv(dbname string) (*IdxAdvisor, error) {
+	if ia, ok := registeredIdxAdv[dbname]; ok {
+		return ia, nil
 	}
 
-	if ia, err := idxadvPool.pop(); err != nil {
-		panic(err)
-	} else {
-		registeredIdxAdv[connID] = ia
-		return ia
+	ia, err := idxadvPool.pop()
+	if err != nil {
+		return nil, errors.New("no index advisor session is detected")
 	}
+	registeredIdxAdv[dbname] = ia
+	ia.dbName = dbname
+	return ia, nil
 }
 
 // Init set session variable tidb_enable_index_advisor = true
 func (ia *IdxAdvisor) Init() error {
 	ia.queryChan = make(chan string, queryChanSize)
-	_, err := ia.dbClient.Exec("SET tidb_enable_index_advisor = 1")
-	if err == nil {
-		ia.GetReady()
-		return nil
+	err := ia.checkFilePath()
+	if err != nil {
+		return err
 	}
-	return err
+	_, err = ia.dbClient.Exec("SET tidb_enable_index_advisor = 1")
+	if err != nil {
+		return err
+	}
+
+	ia.getReady()
+	return nil
 }
 
-func (ia *IdxAdvisor) GetReady() {
+// checkFilePath checks if sql file path and output file path exists
+// if sql file path doesn't exist, return error
+// if output file path doesn't exist, create one
+func (ia *IdxAdvisor) checkFilePath() error {
+	if exist, err := existPath(ia.sqlFile); !exist {
+		if err == nil {
+			return errors.New("input sql file dosen't exist")
+		}
+		return err
+	}
+
+	if exist, err := existPath(ia.outputPath); !exist {
+		if err == nil {
+			err = os.Mkdir(ia.outputPath, 777)
+			if err == nil {
+				return nil
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (ia *IdxAdvisor) getReady() {
 	ia.ready.Store(true)
 }
 
-func (ia *IdxAdvisor) IsReady() bool {
+func (ia *IdxAdvisor) isReady() bool {
 	if v, ok := ia.ready.Load().(bool); ok {
 		return v
 	}
-	panic("IdxAdvisor.ready is not bool")
+	return false
 }
 
 // StartTask start handling queries in idxadv mode after session variable tidb_enable_index_advisor has been set
-func (ia *IdxAdvisor) StartTask(sqlFile string) {
-	if ia.IsReady() {
-		go readQuery(sqlFile, ia.queryChan)
+func (ia *IdxAdvisor) StartTask() error {
+	if ia.isReady() {
+		go readQuery(ia.sqlFile, ia.queryChan)
 
 		cnt := 0
 		for {
 			cnt++
 			query, ok := <-ia.queryChan
 			if !ok {
-				// No more query
-				WriteFinalResult()
-				return
+				err := ia.writeFinalResult()
+				if err != nil {
+					logutil.BgLogger().Error("write result to file error", zap.Error(err))
+				}
+				return nil
 			}
-			fmt.Printf("**************************************[%v]******************************************\n", cnt)
-			ia.dbClient.Exec(query)
+			logutil.BgLogger().Info(fmt.Sprintf("Evaluating [%v] query\n", cnt))
+			_, err := ia.dbClient.Exec(query)
+			if err != nil {
+				return err
+			}
 		}
+	} else {
+		logutil.BgLogger().Error("idxadvisor.StartTask failed, idxadvisor is not ready yet")
+		return errors.New("start task without index advisor being ready. check if session variable has been set")
 	}
 }
 
-func GetVirtualInfoschema(is infoschema.InfoSchema, dbName string, tableInfoSets map[string]*plannercore.TableInfoSets) infoschema.InfoSchema {
+// writeFinalResult saves virtual indices and their benefit to outputPath
+func (ia *IdxAdvisor) writeFinalResult() error {
+	for dbname, v := range registeredIdxAdv {
+		sort.Sort(v.CanIdx)
+		resFile := path.Join(ia.outputPath, fmt.Sprintf("%v_RESULT", dbname))
+		content := ""
+		for _, i := range v.CanIdx {
+			content += fmt.Sprintf("%s: (", i.Index.Index.Table.L)
+			for _, col := range i.Index.Index.Columns {
+				content += fmt.Sprintf("%s,", col.Name.L)
+			}
+			content = content[:len(content)-1]
+			content += fmt.Sprintf(")    %f\n", i.Benefit)
+		}
+		return writeToFile(resFile, content, false)
+	}
+
+	return nil
+}
+
+func (ia *IdxAdvisor) writeResultToFile(queryCnt uint64, origCost, vcost float64, indices []*model.IndexInfo) error {
+	origCostPrefix := fmt.Sprintf("%v_OCOST", ia.dbName)
+	origFile := path.Join(ia.outputPath, origCostPrefix)
+	origCostOut := fmt.Sprintf("%-10d%f\n", queryCnt, origCost)
+	if err := writeToFile(origFile, origCostOut, true); err != nil {
+		return err
+	}
+
+	virtualCostPrefix := fmt.Sprintf("%v_OVCOST", ia.dbName)
+	vcostFile := path.Join(ia.outputPath, virtualCostPrefix)
+	virtualCostOut := fmt.Sprintf("%-10d%f\n", queryCnt, vcost)
+	if err := writeToFile(vcostFile, virtualCostOut, true); err != nil {
+		return err
+	}
+
+	virtualIdxPrefix := fmt.Sprintf("%v_OINDEX", ia.dbName)
+	vIdxFile := path.Join(ia.outputPath, virtualIdxPrefix)
+	virtualIdxOut := fmt.Sprintf("%-10d{%s}\n", queryCnt, buildIdxOutputInfo(indices))
+	if err := writeToFile(vIdxFile, virtualIdxOut, true); err != nil {
+		return err
+	}
+
+	origSummaryPrefix := fmt.Sprintf("%v_ORIGIN", ia.dbName)
+	origSummFile := path.Join(ia.outputPath, origSummaryPrefix)
+	origSummaryOut := fmt.Sprintf("%-10d%f%v%f%v{%v}\n", queryCnt, origCost, sepString, vcost, sepString, buildIdxOutputInfo(indices))
+	return writeToFile(origSummFile, origSummaryOut, true)
+}
+
+func writeToFile(fileName, content string, append bool) error {
+	fd, err := os.OpenFile(fileName, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
+	if !append {
+		fd, err = os.OpenFile(fileName, os.O_CREATE|os.O_RDWR, 0666)
+	}
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err := fd.Close()
+		if err != nil {
+			logutil.BgLogger().Error("write to file error", zap.Error(err))
+		}
+	}()
+
+	_, err = fd.WriteString(content)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func buildIdxOutputInfo(indices []*model.IndexInfo) string {
+	var vIdxesInfo string
+	if len(indices) == 0 {
+		return ""
+	}
+	for _, idx := range indices {
+		var singleIdx string = "("
+		for _, col := range idx.Columns {
+			singleIdx = fmt.Sprintf("%s%s ", singleIdx, col.Name.L)
+		}
+		singleIdx = fmt.Sprintf("%v) ", singleIdx[:len(singleIdx)-1])
+		vIdxesInfo = fmt.Sprintf("%s%s", vIdxesInfo, singleIdx)
+	}
+	return vIdxesInfo
+}
+
+// GetVirtualInfoschema returns a modified copy of passed-in infoschema
+func GetVirtualInfoschema(is infoschema.InfoSchema, dbName string, tableInfoSets map[string]*plannercore.TableInfoSets) (infoschema.InfoSchema, error) {
 	// Get a copy of InfoSchema
 	dbInfos := is.Clone()
 	ISCopy := infoschema.MockInfoSchemaWithDBInfos(dbInfos, is.SchemaMetaVersion())
@@ -148,23 +292,29 @@ func GetVirtualInfoschema(is infoschema.InfoSchema, dbName string, tableInfoSets
 		tblname := model.NewCIStr(tblname)
 		tblCopy, err := ISCopy.TableByName(dbname, tblname)
 		if err != nil {
-			panic(err)
+			logutil.BgLogger().Error("Get virtual infoschema error", zap.Error(err))
+			return nil, err
 		}
 		tblInfoCopy := tblCopy.Meta()
 		idxInfo := tblCopy.Meta().Indices
 
 		// add virtual indexes to InfoSchemaCopy.TblInfo
-		virtualIndexes := buildVirtualIndexes(tblInfoCopy, dbname, tblname, tblInfoSets)
+		virtualIndexes, err := buildVirtualIndexes(tblInfoCopy, dbname, tblname, tblInfoSets)
+		if err != nil {
+			logutil.BgLogger().Error("build virtual indexes error", zap.Error(err))
+			return nil, err
+		}
+
 		for _, virtualIndex := range virtualIndexes {
 			if !isExistedInTable(virtualIndex, idxInfo) {
 				tblInfoCopy.Indices = append(tblInfoCopy.Indices, virtualIndex)
 			}
 		}
 	}
-	return ISCopy
+	return ISCopy, nil
 }
 
-func buildVirtualIndexes(tblInfo *model.TableInfo, dbname, tblname model.CIStr, tblInfoSets *plannercore.TableInfoSets) []*model.IndexInfo {
+func buildVirtualIndexes(tblInfo *model.TableInfo, dbname, tblname model.CIStr, tblInfoSets *plannercore.TableInfoSets) ([]*model.IndexInfo, error) {
 	indexes := genVirtualIndexCols(tblInfo, dbname, tblname, tblInfoSets)
 	result := make([]*model.IndexInfo, 0)
 	for i, idxColNames := range indexes {
@@ -177,11 +327,11 @@ func buildVirtualIndexes(tblInfo *model.TableInfo, dbname, tblname model.CIStr, 
 				idxColNameStr = fmt.Sprintf("%v  %v", idxColNameStr, idxCol)
 			}
 			fmt.Printf("++++++++++++++++++idxColNames: %v, indexName: %v++++++++++++++++++++++\n", idxColNames, idxColNameStr)
-			panic(err)
+			return nil, err
 		}
 		result = append(result, indexinfo)
 	}
-	return result
+	return result, nil
 }
 
 func genVirtualIndexCols(tblInfo *model.TableInfo, dbname, tblname model.CIStr, tblInfoSets *plannercore.TableInfoSets) [][]*ast.IndexColName {
@@ -315,7 +465,7 @@ func genIndexCols(index *model.IndexInfo) []model.CIStr {
 
 func (ia *IdxAdvisor) addCandidate(virtualIdx *CandidateIdx) {
 	in := false
-	for _, candidateIdx := range ia.Candidate_idx {
+	for _, candidateIdx := range ia.CanIdx {
 		if reflect.DeepEqual(candidateIdx.Index.Index.Columns, virtualIdx.Index.Index.Columns) && reflect.DeepEqual(candidateIdx.Index.Table.Name, virtualIdx.Index.Table.Name) {
 			candidateIdx.Benefit += virtualIdx.Benefit
 			in = true
@@ -324,34 +474,61 @@ func (ia *IdxAdvisor) addCandidate(virtualIdx *CandidateIdx) {
 	}
 
 	if !in {
-		ia.Candidate_idx = append(ia.Candidate_idx, virtualIdx)
+		ia.CanIdx = append(ia.CanIdx, virtualIdx)
 	}
 }
 
-func readQuery(sqlFile string, queryChan chan string) {
+func readQuery(sqlPath string, queryChan chan string) {
 	defer func() {
 		close(queryChan)
 	}()
 
 	// If readQuery is called in idxadv_test.go, return immediately
-	if sqlFile == "test-mode" {
+	if sqlPath == "test-mode" {
 		return
 	}
 
-	files, err := ioutil.ReadDir(sqlFile)
+	files, err := ioutil.ReadDir(sqlPath)
 	if err != nil {
-		panic(err)
+		logutil.BgLogger().Error(fmt.Sprintf("read query gets error when read directory: %v", sqlPath), zap.Error(err))
 	}
 
 	n := len(files)
 
 	for i := 1; i <= n; i++ {
-		sqlfile := sqlFile + strconv.Itoa(i) + ".sql"
+		sqlfile := strconv.Itoa(i) + ".sql"
+		fileName := path.Join(sqlPath, sqlfile)
 
-		contents, err := ioutil.ReadFile(sqlfile)
-		if err != nil {
-			panic(err)
+		if existFile(fileName) {
+			contents, err := ioutil.ReadFile(fileName)
+			if err != nil {
+				logutil.BgLogger().Error("index advisor readQuery error", zap.Error(err))
+			}
+			queryChan <- string(contents)
 		}
-		queryChan <- string(contents)
 	}
+}
+
+func existFile(file string) bool {
+	_, err := os.Stat(file)
+	if err != nil {
+		if os.IsExist(err) {
+			return true
+		}
+		return false
+	}
+	return true
+}
+
+func existPath(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+
+	return false, err
 }

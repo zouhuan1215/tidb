@@ -2,19 +2,14 @@ package idxadvisor
 
 import (
 	"fmt"
-	"os"
-	"sort"
 
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/infoschema"
 	plannercore "github.com/pingcap/tidb/planner/core"
 )
 
-const(
-	outputPath string = "/home/iggie/"
-	sepString string = "    "
-	topN = 3
-) 
+// sepString is used to format result
+const sepString string = "    "
 
 // IndicesWithCost includes in indices and their physical plan cost.
 type IndicesWithCost struct {
@@ -71,9 +66,12 @@ func travelPhysicalPlan(plan plannercore.PhysicalPlan, indices *[]*IdxAndTblInfo
 	}
 }
 
-// SaveVirtualIndices saves virtual indices to  and their benefit.
-func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWithCost, connID uint64, origCost float64) {
-	ia := GetIdxAdv(connID)
+// SaveVirtualIndices saves virtual indices and their benefit.
+func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWithCost, origCost float64) error {
+	ia, err := GetIdxAdv(dbname)
+	if err != nil {
+		return err
+	}
 	indices := iwc.Indices
 	ia.queryCnt++
 
@@ -81,20 +79,24 @@ func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWith
 	for i, indice := range indices {
 		idxes[i] = indice.Index
 	}
-	writeResultToFile(connID, ia.queryCnt, origCost, iwc.Cost, idxes)
 
-	fmt.Printf("***Connection id %d, virtual physical plan's cost: %f, original cost: %f \n", connID, iwc.Cost, origCost)
+	err = ia.writeResultToFile(ia.queryCnt, origCost, iwc.Cost, idxes)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("***Connection id %v, virtual physical plan's cost: %f, original cost: %f \n", dbname, iwc.Cost, origCost)
 	benefit := origCost - iwc.Cost
 	if benefit/origCost < Deviation {
 		fmt.Println("needn't create index")
-		return
+		return nil
 	}
 
 	fmt.Printf("***Index:")
 	for _, idx := range indices {
 		table, err := is.TableByName(model.NewCIStr(dbname), idx.Table.Name)
 		if err != nil {
-			panic(err)
+			return err
 		}
 
 		if isExistedInTable(idx.Index, table.Meta().Indices) {
@@ -114,34 +116,18 @@ func SaveVirtualIndices(is infoschema.InfoSchema, dbname string, iwc IndicesWith
 		}
 		fmt.Printf("\b)\n")
 	}
-}
 
-// WriteFinalResult saves virtual indices and their benefit.
-func WriteFinalResult() {
-	for id, v := range registeredIdxAdv {
-		sort.Sort(v.Candidate_idx)
-		resFile := fmt.Sprintf("%v_RESULT", id)
-		content := ""
-		for _, i := range v.Candidate_idx {
-			content += fmt.Sprintf("%s: (", i.Index.Index.Table.L)
-			for _, col := range i.Index.Index.Columns {
-				content += fmt.Sprintf("%s,", col.Name.L)
-			}
-			content = content[:len(content)-1]
-			content += fmt.Sprintf(")    %f\n", i.Benefit)
-		}
-		writeToFile(resFile, content, false)
-	}
+	return nil
 }
 
 // GetRecommendIdxStr return recommended index in string format.
-func GetRecommendIdxStr(connID uint64) (string, error) {
-	ia, ok := registeredIdxAdv[connID]
+func GetRecommendIdxStr(dbname string) (string, error) {
+	ia, ok := registeredIdxAdv[dbname]
 	if !ok {
-		return "", fmt.Errorf("bad attempt to get recommend index with no registered index advisor. connID: %v", connID)
+		return "", fmt.Errorf("bad attempt to get recommend index with no registered index advisor. connID: %v", dbname)
 	}
 
-	idxes := ia.Candidate_idx
+	idxes := ia.CanIdx
 	if len(idxes) == 0 {
 		return "", nil
 	}
@@ -153,7 +139,7 @@ func GetRecommendIdxStr(connID uint64) (string, error) {
 		cols := idx.Index.Index.Columns
 		colLen := len(cols)
 
-		for i := 0; i < len(cols) - 1; i++ {
+		for i := 0; i < len(cols)-1; i++ {
 			idxStr = fmt.Sprintf("%s%s ", idxStr, cols[i].Name.L)
 		}
 
@@ -163,51 +149,19 @@ func GetRecommendIdxStr(connID uint64) (string, error) {
 	return idxesStr[:len(idxesStr)-1], nil
 }
 
-// ToString returns indices string.
-func ToString(indices []*model.IndexInfo) string {
-	var vIdxesInfo string
-	if len(indices) == 0 {
-		return ""
-	}
-	for _, idx := range indices {
-		singleIdx := "("
-		for _, col := range idx.Columns {
-			singleIdx = fmt.Sprintf("%s%s ", singleIdx, col.Name.L)
-		}
-		singleIdx = fmt.Sprintf("%v) ", singleIdx[:len(singleIdx)-1])
-		vIdxesInfo = fmt.Sprintf("%s%s", vIdxesInfo, singleIdx)
-	}
-	return vIdxesInfo
-}
-
-func writeResultToFile(connID uint64, queryCnt uint64, origCost, vcost float64, indices []*model.IndexInfo) {
-	origCostPrefix := fmt.Sprintf("%v_OCOST", connID)
-	origCostOut := fmt.Sprintf("%-10d%f\n", queryCnt, origCost)
-	writeToFile(origCostPrefix, origCostOut, true)
-
-	virtualCostPrefix := fmt.Sprintf("%v_OVCOST", connID)
-	virtualCostOut := fmt.Sprintf("%-10d%f\n", queryCnt, vcost)
-	writeToFile(virtualCostPrefix, virtualCostOut, true)
-
-	virtualIdxPrefix := fmt.Sprintf("%v_OINDEX", connID)
-	virtualIdxOut := fmt.Sprintf("%-10d{%s}\n", queryCnt, ToString(indices))
-	writeToFile(virtualIdxPrefix, virtualIdxOut, true)
-
-	origSummaryPrefix := fmt.Sprintf("%v_ORIGIN", connID)
-	origSummaryOut := fmt.Sprintf("%-10d%f%v%f%v{%v}\n", queryCnt, origCost, sepString, vcost, sepString, ToString(indices))
-	writeToFile(origSummaryPrefix, origSummaryOut, true)
-}
-
-func writeToFile(filename, content string, append bool) {
-	fileName := fmt.Sprintf("%s%s", outputPath, filename)
-	fd, err := os.OpenFile(fileName, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
-	if !append {
-		fd, err = os.OpenFile(fileName, os.O_CREATE|os.O_RDWR, 0666)
-	}
-	if err != nil {
-		panic(err)
-	}
-	defer fd.Close()
-
-	fd.WriteString(content)
-}
+//// ToString returns indices string.
+//func ToString(indices []*model.IndexInfo) string {
+//	var vIdxesInfo string
+//	if len(indices) == 0 {
+//		return ""
+//	}
+//	for _, idx := range indices {
+//		singleIdx := "("
+//		for _, col := range idx.Columns {
+//			singleIdx = fmt.Sprintf("%s%s ", singleIdx, col.Name.L)
+//		}
+//		singleIdx = fmt.Sprintf("%v) ", singleIdx[:len(singleIdx)-1])
+//		vIdxesInfo = fmt.Sprintf("%s%s", vIdxesInfo, singleIdx)
+//	}
+//	return vIdxesInfo
+//}

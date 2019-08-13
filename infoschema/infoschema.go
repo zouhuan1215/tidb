@@ -165,6 +165,7 @@ func MockInfoSchema(tbList []*model.TableInfo) InfoSchema {
 	return result
 }
 
+// MockInfoSchemaWithDBInfos build InfoSchema from []*model.DBInfo
 func MockInfoSchemaWithDBInfos(dbInfos []*model.DBInfo, schemaMetaVer int64) InfoSchema {
 	result := &infoSchema{}
 	result.schemaMap = make(map[string]*schemaTables)
@@ -176,7 +177,7 @@ func MockInfoSchemaWithDBInfos(dbInfos []*model.DBInfo, schemaMetaVer int64) Inf
 			dbInfo: db,
 			tables: make(map[string]table.Table),
 		}
-		result.schemaMap[db.Name.String()] = tableNames
+		result.schemaMap[db.Name.L] = tableNames
 		tbList := db.Tables
 		for _, tb := range tbList {
 			tbl := table.MockTableFromMeta(tb)

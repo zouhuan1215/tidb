@@ -53,6 +53,11 @@ func PrintTiDBInfo() {
 	logutil.BgLogger().Info("loaded config", zap.ByteString("config", configJSON))
 }
 
+// PrintIdxAdvisorInfo print noticeable information of running in index advisor mode
+func PrintIdxAdvisorInfo() {
+	logutil.BgLogger().Info("**************** Running Index Advisor Mode *********************")
+}
+
 // GetTiDBInfo returns the git hash and build time of this tidb-server binary.
 func GetTiDBInfo() string {
 	return fmt.Sprintf("Release Version: %s\n"+

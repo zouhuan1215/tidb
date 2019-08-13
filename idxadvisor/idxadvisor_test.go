@@ -11,6 +11,7 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/idxadvisor"
+	idxadv "github.com/pingcap/tidb/idxadvisor"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
@@ -56,8 +57,9 @@ func (s *testAnalyzeSuite) loadTableStats(fileName string, dom *domain.Domain) e
 }
 
 func (s *testAnalyzeSuite) TestSQLClient(c *C) {
-	err := idxadvisor.RunSqlClient("test-mode")
-	c.Assert(err, IsNil)
+	// TestSQLClient requires a running TiDB server or mysql server
+	started := idxadv.RunIdxAdvisor("test-mode", "10080", "/tmp/test-indexadvisor", "root", "127.0.0.1:4000", "", "test")
+	c.Assert(started, Equals, true, Commentf("TestSQLClient requires a running TiDB server or mysql server, default server address: [127.0.0.1: 4000]"))
 }
 
 func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
@@ -66,7 +68,7 @@ func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
 	c.Assert(err, IsNil)
 
 	testkit := testkit.NewTestKit(c, store)
-	idxadvisor.MockNewIdxAdv()
+	idxadvisor.MockNewIdxAdv("/tmp/test-queries", "/tmp/test-idxadvisor")
 	defer func() {
 		dom.Close()
 		store.Close()
@@ -92,7 +94,7 @@ func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
 	sessionVars := ctx.GetSessionVars()
 	sessionVars.HashAggFinalConcurrency = 1
 	sessionVars.HashAggPartialConcurrency = 1
-	connID := sessionVars.ConnectionID
+	dbName := sessionVars.CurrentDB
 
 	tests := []struct {
 		sql []string
@@ -126,7 +128,7 @@ func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
 		for _, sql := range tt.sql {
 			testkit.Exec(sql)
 		}
-		res, err := idxadvisor.GetRecommendIdxStr(connID)
+		res, err := idxadvisor.GetRecommendIdxStr(dbName)
 		c.Assert(err, IsNil)
 		c.Assert(res, Equals, tt.res, Commentf("for %v", tt.sql))
 	}

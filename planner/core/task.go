@@ -476,6 +476,8 @@ type rootTask struct {
 	cst float64
 }
 
+// GetTaskCost checks if paased-in plannercore.Plan is implemented by task
+// if it is, return task.Cost()
 func GetTaskCost(p Plan) (float64, error) {
 	switch vt := p.(type) {
 	case *rootTask:
@@ -487,6 +489,8 @@ func GetTaskCost(p Plan) (float64, error) {
 	}
 }
 
+// GetPhysicalPlan checks if paased-in plannercore.Plan is implemented by task
+// if it is, return task.plan()
 func GetPhysicalPlan(p Plan) (PhysicalPlan, error) {
 	switch vt := p.(type) {
 	case *rootTask:
