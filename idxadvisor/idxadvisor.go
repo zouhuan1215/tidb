@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 	"sync/atomic"
 
 	"github.com/pingcap/parser/ast"
@@ -96,6 +97,7 @@ func NewIdxAdv(db *sql.DB, sqlfile string, outputpath string) *IdxAdvisor {
 // This is only for test
 func MockNewIdxAdv(sqlfile string, outputpath string) *IdxAdvisor {
 	ia := &IdxAdvisor{sqlFile: sqlfile, outputPath: outputpath}
+	ia.handleTestFile()
 	ia.ready.Store(false)
 	idxadvPool.push(ia)
 	return ia
@@ -136,6 +138,9 @@ func (ia *IdxAdvisor) Init() error {
 // if sql file path doesn't exist, return error
 // if output file path doesn't exist, create one
 func (ia *IdxAdvisor) checkFilePath() error {
+	if strings.HasPrefix(ia.sqlFile, "test") {
+		return ia.handleTestFile()
+	}
 	if exist, err := existPath(ia.sqlFile); !exist {
 		if err == nil {
 			return errors.New("input sql file dosen't exist")
@@ -153,6 +158,26 @@ func (ia *IdxAdvisor) checkFilePath() error {
 		}
 	}
 
+	return nil
+}
+
+// handleTestFile is called only by test files
+func (ia *IdxAdvisor) handleTestFile() error {
+	if strings.HasSuffix(ia.sqlFile, "sqlclient") {
+		return nil
+	}
+
+	if strings.HasSuffix(ia.sqlFile, "mock") {
+		if exist, err := existPath(ia.outputPath); !exist {
+			if err == nil {
+				err = os.Mkdir(ia.outputPath, 777)
+				if err == nil {
+					return nil
+				}
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -483,8 +508,8 @@ func readQuery(sqlPath string, queryChan chan string) {
 		close(queryChan)
 	}()
 
-	// If readQuery is called in idxadv_test.go, return immediately
-	if sqlPath == "test-mode" {
+	// If readQuery is called in idxadvisor_test.go, return immediately
+	if sqlPath == "test-sqlclient" || sqlPath == "test-mock" {
 		return
 	}
 

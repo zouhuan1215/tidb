@@ -9,21 +9,27 @@ import (
 
 	"github.com/juju/errors"
 	. "github.com/pingcap/check"
+	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/idxadvisor"
 	idxadv "github.com/pingcap/tidb/idxadvisor"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/server"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/statistics/handle"
 	"github.com/pingcap/tidb/store/mockstore"
+	"github.com/pingcap/tidb/store/mockstore/mocktikv"
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
 )
 
-var _ = Suite(&testAnalyzeSuite{})
+var _ = SerialSuites(&testAnalyzeSuite{})
 
 type testAnalyzeSuite struct {
+	server *server.Server
+	store  kv.Storage
+	domain *domain.Domain
 }
 
 func TestT(t *testing.T) {
@@ -57,9 +63,45 @@ func (s *testAnalyzeSuite) loadTableStats(fileName string, dom *domain.Domain) e
 }
 
 func (s *testAnalyzeSuite) TestSQLClient(c *C) {
-	// TestSQLClient requires a running TiDB server or mysql server
-	started := idxadv.RunIdxAdvisor("test-mode", "10080", "/tmp/test-indexadvisor", "root", "127.0.0.1:4000", "", "test")
-	c.Assert(started, Equals, true, Commentf("TestSQLClient requires a running TiDB server or mysql server, default server address: [127.0.0.1: 4000]"))
+	s.startServer(c)
+
+	started := idxadv.RunIdxAdvisor("test-sqlclient", "10090", "/tmp/test-indexaDvisor", "root", "0.0.0.0:4001", "", "test")
+	c.Assert(started, Equals, true, Commentf("TestSQLClient requires a running TiDB server or mysql server"))
+	s.stopServer(c)
+}
+
+func (s *testAnalyzeSuite) startServer(c *C) {
+	mvccStore := mocktikv.MustNewMVCCStore()
+	var err error
+	s.store, err = mockstore.NewMockTikvStore(mockstore.WithMVCCStore(mvccStore))
+	c.Assert(err, IsNil)
+	session.DisableStats4Test()
+	s.domain, err = session.BootstrapSession(s.store)
+	c.Assert(err, IsNil)
+	s.domain.SetStatsUpdating(true)
+	tidbdrv := server.NewTiDBDriver(s.store)
+
+	cfg := config.NewConfig()
+	cfg.Port = 4001
+	cfg.Status.StatusPort = 10090
+	cfg.Status.ReportStatus = true
+
+	server, err := server.NewServer(cfg, tidbdrv)
+	c.Assert(err, IsNil)
+	s.server = server
+	go server.Run()
+}
+
+func (s *testAnalyzeSuite) stopServer(c *C) {
+	if s.domain != nil {
+		s.domain.Close()
+	}
+	if s.store != nil {
+		s.store.Close()
+	}
+	if s.server != nil {
+		s.server.Close()
+	}
 }
 
 func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
@@ -68,7 +110,7 @@ func (s *testAnalyzeSuite) TestIndexAdvisor(c *C) {
 	c.Assert(err, IsNil)
 
 	testkit := testkit.NewTestKit(c, store)
-	idxadvisor.MockNewIdxAdv("/tmp/test-queries", "/tmp/test-idxadvisor")
+	idxadvisor.MockNewIdxAdv("test-mock", "/tmp/test-idxadvisor")
 	defer func() {
 		dom.Close()
 		store.Close()
